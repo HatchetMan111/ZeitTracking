@@ -607,6 +607,7 @@ def export_csv():
 
 
 def _detail_label(value: object) -> str:
+    """Normalize and validate a category detail label."""
     text = str(value or "").strip()
     if len(text) > 60:
         raise ApiError("Detail-Label darf höchstens 60 Zeichen lang sein")

@@ -228,9 +228,24 @@ def test_category_detail_label_roundtrip(client):
     listed = client.get("/api/state").get_json()["categories"]
     assert next(item for item in listed if item["id"] == cat["id"])["detail_label"] == "Welche Serie?"
 
+    listed_api = client.get("/api/categories").get_json()["categories"]
+    assert next(item for item in listed_api if item["id"] == cat["id"])["detail_label"] == "Welche Serie?"
+
     assert client.patch(
         f"/api/categories/{cat['id']}", json={"detail_label": "x" * 61}
     ).status_code == 400
+
+    updated = client.patch(
+        f"/api/categories/{cat['id']}", json={"detail_label": "  Welche Staffel?  "}
+    ).get_json()["category"]
+    assert updated["detail_label"] == "Welche Staffel?"
+    listed_after = client.get("/api/state").get_json()["categories"]
+    assert next(item for item in listed_after if item["id"] == cat["id"])["detail_label"] == "Welche Staffel?"
+
+    boundary = client.patch(
+        f"/api/categories/{cat['id']}", json={"detail_label": "y" * 60}
+    ).get_json()["category"]
+    assert boundary["detail_label"] == "y" * 60
 
     cleared = client.patch(
         f"/api/categories/{cat['id']}", json={"detail_label": "   "}
