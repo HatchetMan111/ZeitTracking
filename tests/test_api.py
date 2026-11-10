@@ -185,6 +185,26 @@ def test_stats_grouped_by_category(client):
     assert len(payload["days"]) == 1
 
 
+def test_stats_includes_entry_details_for_day_list(client):
+    cat = category_id(client, "Filme")
+    day = day_payload(client)
+    start = day["start_ms"] + 8 * 3600000
+    client.post(
+        "/api/entries",
+        json={
+            "category_id": cat,
+            "started_at": start,
+            "ended_at": start + 3600000,
+            "note": "Dune: Part Two",
+        },
+    )
+    payload = client.get(f"/api/stats?from={day['date']}&to={day['date']}").get_json()
+    assert payload["entries"][0]["note"] == "Dune: Part Two"
+    assert payload["entries"][0]["label"] == "Filme"
+    assert payload["entries"][0]["minutes"] == 60
+    assert payload["entries"][0]["effective_end"] == start + 3600000
+
+
 def test_csv_export(client):
     cat = category_id(client)
     day = day_payload(client)

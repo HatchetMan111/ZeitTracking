@@ -553,12 +553,26 @@ def get_stats():
         categories = {cat["id"]: cat for cat in _categories_json(conn, include_archived=True)}
         by_category: dict[int, int] = {}
         total_ms = 0
+        entry_details = []
         for row in rows:
             overlap = _overlap_ms(row["started_at"], _effective_end(row, now), start, end)
             if overlap <= 0:
                 continue
             total_ms += overlap
             by_category[row["category_id"]] = by_category.get(row["category_id"], 0) + round(overlap / 60000)
+            entry_details.append(
+                {
+                    "id": row["id"],
+                    "category_id": row["category_id"],
+                    "label": row["category_name"],
+                    "color": row["category_color"],
+                    "started_at": row["started_at"],
+                    "effective_end": _effective_end(row, now),
+                    "minutes": round(overlap / 60000),
+                    "note": row["note"],
+                }
+            )
+        entry_details.sort(key=lambda item: item["started_at"], reverse=True)
 
         days = []
         cursor = timeutil.parse_date(from_s)
@@ -596,6 +610,7 @@ def get_stats():
                 "total_minutes": round(total_ms / 60000),
                 "rows": result_rows,
                 "days": days,
+                "entries": entry_details,
             }
         )
     finally:
