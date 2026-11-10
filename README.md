@@ -1,8 +1,8 @@
 # Timeblocks
 
 Lokale Zeiterfassung für dein Heimnetz – als Proxmox-LXC in wenigen Minuten installiert.
-Vorbild ist der Arbeitsablauf von *Hours Time Tracking* (Timer-Chips, Timeline, Berichte),
-Code, Design und Assets sind eigenständig umgesetzt.
+Timer-Chips, Tages-Timeline und Berichte für den schnellen Alltag –
+vollständig eigenständig entwickelt, ohne externe Dienste oder Fremd-Assets.
 
 ![Timeblocks Tagesansicht](docs/screenshot.png)
 

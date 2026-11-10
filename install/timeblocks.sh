@@ -15,6 +15,7 @@
 #   bash timeblocks.sh --uninstall --ctid 210
 #
 set -Eeuo pipefail
+umask 077
 
 # ---------------------------------------------------------------------------
 # Variablen (alles hier anpassbar)
@@ -48,6 +49,7 @@ STORAGE_ARG=""
 TEMPLATE_STORE="${TEMPLATE_STORE:-}"
 BRIDGE="${BRIDGE:-$DEFAULT_BRIDGE}"
 ROOT_PASSWORD=""
+PASSWORD_ARG=""
 SSH_KEY_ARG=""
 IP_ARG=""
 GW_ARG=""
@@ -164,8 +166,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ "$APP_PORT" =~ ^[0-9]+$ ]] && (( APP_PORT >= 1 && APP_PORT <= 65535 )) \
-  || { msg_error "Ungültiger Port: $APP_PORT"; exit 1; }
+if [[ ! "$APP_PORT" =~ ^[0-9]+$ ]] || (( APP_PORT < 1 || APP_PORT > 65535 )); then
+  msg_error "Ungültiger Port: $APP_PORT"
+  exit 1
+fi
 if [[ -n "$IP_ARG" && -z "$GW_ARG" ]]; then
   msg_error "--ip benötigt auch --gw (Gateway)."
   exit 1
@@ -647,6 +651,12 @@ if [[ "$REBOOT_TEST" == "1" ]]; then
   CT_IP="$(pct exec "$CT_ID" -- hostname -I 2>/dev/null | awk '{print $1}' || true)"
 fi
 
+if [[ -n "$PASSWORD_ARG" ]]; then
+  LOGIN_TEXT="aktiv (Passwort siehe unten)"
+else
+  LOGIN_TEXT="deaktiviert (nur LAN)"
+fi
+
 echo ""
 echo "════════════════ INSTALLATION ERFOLGREICH ════════════════"
 echo "  App          : ${APP_NAME} – lokale Zeiterfassung"
@@ -654,7 +664,7 @@ echo "  Container    : CT ${CT_ID} (Hostname: ${HOSTNAME_ARG}, unprivilegiert, o
 echo "  Ressourcen   : ${CORES} vCPU / ${RAM} MB RAM / ${DISK} GB Disk"
 echo "  Web UI       : http://${CT_IP}:${APP_PORT}"
 echo "  Health       : http://${CT_IP}:${APP_PORT}/api/health"
-echo "  Login        : ${PASSWORD_ARG:+Passwort gesetzt}${PASSWORD_ARG:-deaktiviert (nur LAN)}"
+echo "  Login        : ${LOGIN_TEXT}"
 echo "  Web-Passwort : ${PASSWORD_ARG:-<kein Login>}"
 echo "  Root-Passwort: ${ROOT_PASSWORD:-<bestehender CT, unverändert>} (nur jetzt angezeigt!)"
 echo "  Service      : pct exec ${CT_ID} -- systemctl status timeblocks"
