@@ -1,0 +1,28 @@
+[Unit]
+Description=Timeblocks - lokale Zeiterfassung
+Documentation=https://github.com/HatchetMan111/ZeitTracking
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=timeblocks
+Group=timeblocks
+WorkingDirectory=/opt/timeblocks/app
+Environment=PYTHONUNBUFFERED=1
+Environment=TIMEBLOCKS_DATA_DIR=/var/lib/timeblocks
+Environment=XDG_RUNTIME_DIR=/run/timeblocks
+EnvironmentFile=-/etc/timeblocks.env
+ExecStart=/usr/local/bin/timeblocks-gunicorn --workers 2 --worker-class gthread --threads 4 --timeout 60 --graceful-timeout 20 --access-logfile - --error-logfile - --bind 0.0.0.0:8080 app:app
+Restart=always
+RestartSec=2
+RuntimeDirectory=timeblocks
+RuntimeDirectoryMode=0750
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/timeblocks
+
+[Install]
+WantedBy=multi-user.target

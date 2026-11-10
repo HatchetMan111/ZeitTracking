@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="de" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Timeblocks</title>
+  <meta name="description" content="Lokale Zeiterfassung mit Timern, Tages-Timeline und Berichten.">
+  <meta name="theme-color" content="#0b0b0f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Timeblocks">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="topbar">
+      <button class="icon-btn" id="prevDay" aria-label="Vorheriger Tag">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <button class="date-block" id="todayBtn" title="Zum heutigen Tag">
+        <span class="date-main" id="dateMain">Heute</span>
+        <span class="date-sub" id="dateSub">–</span>
+      </button>
+      <button class="icon-btn" id="nextDay" aria-label="Nächster Tag">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+      </button>
+    </header>
+
+    <section class="hero">
+      <div class="hero-top">
+        <span class="hero-label">Erfasst</span>
+        <span class="hero-live" id="heroLive"></span>
+      </div>
+      <div class="hero-total" id="heroTotal">0m</div>
+      <div class="day-strip" id="dayStrip"></div>
+    </section>
+
+    <section class="timer-section">
+      <div class="section-head">
+        <h2>Timer</h2>
+        <span class="hint" id="runningHint"></span>
+      </div>
+      <div class="timer-scroll">
+        <div class="timer-row" id="timerRow"></div>
+      </div>
+    </section>
+
+    <nav class="tabs" role="tablist" aria-label="Ansicht">
+      <button class="tab active" data-tab="day" role="tab" aria-selected="true">Tag</button>
+      <button class="tab" data-tab="reports" role="tab" aria-selected="false">Berichte</button>
+      <button class="tab" data-tab="settings" role="tab" aria-selected="false">Einstellungen</button>
+    </nav>
+
+    <main class="content">
+      <section class="panel active" id="panel-day">
+        <div class="timeline-card">
+          <div class="timeline" id="timeline">
+            <div class="timeline-inner" id="timelineInner">
+              <div class="hour-layer" id="hourLayer"></div>
+              <div class="blocks" id="blocks"></div>
+              <div class="now-line" id="nowLine" hidden><span class="now-dot"></span><span class="now-label" id="nowLabel"></span></div>
+            </div>
+          </div>
+          <div class="timeline-empty" id="timelineEmpty" hidden>
+            <p>Noch keine Zeitblöcke.</p>
+            <p class="muted">Tippe in die Timeline oder starte oben einen Timer.</p>
+          </div>
+        </div>
+
+        <div class="section-head compact">
+          <h2>Nachtrag</h2>
+          <button class="ghost-btn" id="addDuration">+ Dauer</button>
+        </div>
+        <div class="duration-list" id="durationList"></div>
+
+        <button class="add-block-btn" id="addBlock">+ Zeitblock hinzufügen</button>
+      </section>
+
+      <section class="panel" id="panel-reports">
+        <div class="report-controls">
+          <div class="preset-row">
+            <button type="button" data-range="today" class="chip-btn">Heute</button>
+            <button type="button" data-range="week" class="chip-btn active">7 Tage</button>
+            <button type="button" data-range="month" class="chip-btn">30 Tage</button>
+          </div>
+          <div class="range-row">
+            <input type="date" id="reportFrom" aria-label="Von">
+            <span class="range-dash">–</span>
+            <input type="date" id="reportTo" aria-label="Bis">
+            <button class="primary-btn" id="reportRun" type="button">Anzeigen</button>
+          </div>
+        </div>
+
+        <div class="report-total">
+          <span id="reportTotal">0m</span>
+          <span class="muted" id="reportRangeLabel">im Zeitraum</span>
+        </div>
+
+        <div class="bars" id="reportBars"></div>
+
+        <div class="section-head compact">
+          <h2>Pro Tag</h2>
+          <button class="ghost-btn" id="exportCsv" type="button">CSV exportieren</button>
+        </div>
+        <div class="day-bars" id="reportDays"></div>
+      </section>
+
+      <section class="panel" id="panel-settings">
+        <form class="settings-card" id="settingsForm">
+          <label class="field">Tagesbeginn
+            <select id="dayStartHour"></select>
+          </label>
+          <label class="field">Zeitzone
+            <input id="timezone" type="text" autocomplete="off" spellcheck="false" placeholder="Europe/Berlin">
+          </label>
+          <button class="primary-btn" type="submit">Speichern</button>
+        </form>
+
+        <div class="section-head compact">
+          <h2>Kategorien</h2>
+          <button class="ghost-btn" id="addCategory" type="button">+ Neu</button>
+        </div>
+        <div class="cat-new" id="catNew" hidden>
+          <input id="catNewName" type="text" placeholder="Name" maxlength="40">
+          <input id="catNewColor" type="color" value="#0A84FF" aria-label="Farbe">
+          <button class="primary-btn" id="catNewSave" type="button">Anlegen</button>
+        </div>
+        <div class="cat-head"><span></span><span>Name</span><span>Ziel/Woche</span><span></span></div>
+        <div class="cat-list" id="catList"></div>
+
+        <div class="settings-card about">
+          <strong>Timeblocks <span id="appVersion"></span></strong>
+          <p class="muted">Lokale Zeiterfassung. Alle Daten bleiben auf diesem Server.</p>
+          <button class="ghost-btn" id="logoutBtn" type="button" hidden>Abmelden</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
+  <div class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="sheet-grab"></div>
+    <form id="entryForm" class="sheet-form">
+      <h3 id="sheetTitle">Eintrag</h3>
+      <label class="field">Kategorie
+        <select id="entryCategory"></select>
+      </label>
+      <div class="two-col">
+        <label class="field" id="startWrap">Start
+          <input type="datetime-local" id="entryStart">
+        </label>
+        <label class="field" id="endWrap">Ende
+          <input type="datetime-local" id="entryEnd">
+        </label>
+      </div>
+      <label class="field" id="dateWrap" hidden>Datum
+        <input type="date" id="entryDate">
+      </label>
+      <label class="field" id="minutesWrap" hidden>Dauer in Minuten
+        <input type="number" id="entryMinutes" min="1" max="1440" step="1" inputmode="numeric">
+      </label>
+      <label class="field">Notiz
+        <textarea id="entryNote" rows="2" maxlength="2000" placeholder="Woran hast du gearbeitet?"></textarea>
+      </label>
+      <div class="sheet-actions">
+        <button type="button" class="danger-btn" id="entryDelete">Löschen</button>
+        <button type="submit" class="primary-btn" id="entrySave">Speichern</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="toast" id="toast" hidden>
+    <span id="toastText"></span>
+    <button id="toastAction" type="button" hidden></button>
+  </div>
+
+  <div class="login" id="login" hidden>
+    <form id="loginForm" class="login-card">
+      <div class="login-badge">T</div>
+      <h1>Timeblocks</h1>
+      <p class="muted">Dieser Server ist passwortgeschützt.</p>
+      <input type="password" id="loginPassword" placeholder="Passwort" autocomplete="current-password" required>
+      <button class="primary-btn" type="submit">Anmelden</button>
+      <p class="error" id="loginError"></p>
+    </form>
+  </div>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
