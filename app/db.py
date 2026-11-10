@@ -74,10 +74,14 @@ def _has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
     return any(row["name"] == column for row in conn.execute(f"PRAGMA table_info({table})"))
 
 
-def migrate_schema(conn: sqlite3.Connection) -> None:
-    stamp = now_ms()
+def _ensure_detail_label(conn: sqlite3.Connection) -> None:
     if not _has_column(conn, "categories", "detail_label"):
         conn.execute("ALTER TABLE categories ADD COLUMN detail_label TEXT NOT NULL DEFAULT ''")
+
+
+def migrate_schema(conn: sqlite3.Connection) -> None:
+    stamp = now_ms()
+    _ensure_detail_label(conn)
 
     movies = conn.execute(
         "SELECT 1 FROM categories WHERE lower(name) = 'filme' LIMIT 1"
@@ -171,6 +175,7 @@ def init_db() -> None:
                 (_default_timezone(), stamp, stamp),
             )
 
+        _ensure_detail_label(conn)
         count = conn.execute("SELECT COUNT(*) AS n FROM categories").fetchone()["n"]
         if count == 0:
             stamp = now_ms()

@@ -56,3 +56,32 @@ def test_migration_is_idempotent():
     assert count == 1
     version = conn.execute("SELECT MAX(version) AS v FROM schema_migrations").fetchone()["v"]
     assert version == 2
+
+
+def test_init_db_migrates_empty_v1_categories_before_seeding(tmp_path, monkeypatch):
+    db_path = tmp_path / "timeblocks.db"
+    conn = sqlite3.connect(db_path)
+    conn.executescript(V1_SCHEMA)
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(db, "DB_PATH", db_path)
+    db.init_db()
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT name, detail_label FROM categories ORDER BY sort_order"
+        ).fetchall()
+        version = conn.execute(
+            "SELECT MAX(version) AS v FROM schema_migrations"
+        ).fetchone()["v"]
+    finally:
+        conn.close()
+
+    assert [row["name"] for row in rows] == [cat[0] for cat in db.DEFAULT_CATEGORIES]
+    assert len(rows) == 9
+    assert rows[-1]["name"] == "Filme"
+    assert rows[-1]["detail_label"] == "Welcher Film?"
+    assert version == 2
