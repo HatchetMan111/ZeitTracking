@@ -92,3 +92,11 @@ def fmt_duration(minutes: int | float) -> str:
 def day_length_ms(date_value: str, day_start_hour: int, tz_name: str) -> int:
     start, end = day_bounds(date_value, day_start_hour, tz_name)
     return end - start
+
+
+def logical_date_str(ms: int, day_start_hour: int, tz_name: str) -> str:
+    day = local_date_str(ms, tz_name)
+    start, _ = day_bounds(day, day_start_hour, tz_name)
+    if ms < start:
+        day = (parse_date(day) - timedelta(days=1)).isoformat()
+    return day

@@ -63,3 +63,11 @@ def test_local_date_str_around_midnight():
 def test_is_valid_tz():
     assert timeutil.is_valid_tz("Europe/Berlin")
     assert not timeutil.is_valid_tz("Mars/Olympus")
+
+
+def test_logical_date_before_day_start():
+    tz = "Europe/Berlin"
+    start, _ = timeutil.day_bounds("2026-03-15", 0, tz)
+    now = start + 2 * 3600000  # 02:00, Tagesbeginn ist 04:00
+    assert timeutil.logical_date_str(now, 4, tz) == "2026-03-14"
+    assert timeutil.logical_date_str(now, 0, tz) == "2026-03-15"

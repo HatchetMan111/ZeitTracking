@@ -228,7 +228,7 @@ def get_day():
     try:
         tz = _tz(conn)
         day_start_hour = _day_start_hour(conn)
-        today = timeutil.local_date_str(timeutil.now_ms(), tz)
+        today = timeutil.logical_date_str(timeutil.now_ms(), day_start_hour, tz)
         date_s = _date_arg("date", today)
         start, end = timeutil.day_bounds(date_s, day_start_hour, tz)
         now = timeutil.now_ms()
@@ -270,6 +270,70 @@ def get_day():
                     {"category_id": cid, "minutes": minutes} for cid, minutes in sorted(per_category.items())
                 ],
                 "days_with_data": _days_with_data(conn, end, tz, day_start_hour),
+            }
+        )
+    finally:
+        conn.close()
+
+
+@bp.get("/summary")
+def get_summary():
+    conn = db.connect()
+    try:
+        tz = _tz(conn)
+        day_start_hour = _day_start_hour(conn)
+        now = timeutil.now_ms()
+        today = timeutil.logical_date_str(now, day_start_hour, tz)
+        today_date = timeutil.parse_date(today)
+
+        today_start, _ = timeutil.day_bounds(today, day_start_hour, tz)
+        monday = today_date - timedelta(days=today_date.weekday())
+        week_start, _ = timeutil.day_bounds(monday.isoformat(), day_start_hour, tz)
+        month_start, _ = timeutil.day_bounds(today_date.replace(day=1).isoformat(), day_start_hour, tz)
+
+        rows = conn.execute(
+            "SELECT e.category_id, e.kind, e.started_at, e.ended_at, e.minutes,"
+            "       c.name AS category_name, c.color AS category_color"
+            " FROM entries e JOIN categories c ON c.id = e.category_id"
+        ).fetchall()
+
+        def total_since(start_ms: int) -> int:
+            total = sum(
+                _overlap_ms(row["started_at"], _effective_end(row, now), start_ms, now)
+                for row in rows
+            )
+            return round(total / 60000)
+
+        lifetime: dict[int, dict] = {}
+        for row in rows:
+            overlap = _overlap_ms(row["started_at"], _effective_end(row, now), 0, now)
+            if overlap <= 0:
+                continue
+            item = lifetime.setdefault(
+                row["category_id"],
+                {
+                    "category_id": row["category_id"],
+                    "name": row["category_name"],
+                    "color": row["category_color"],
+                    "minutes": 0,
+                },
+            )
+            item["minutes"] += round(overlap / 60000)
+
+        first = conn.execute("SELECT MIN(started_at) AS first FROM entries").fetchone()["first"]
+        return jsonify(
+            {
+                "now": now,
+                "totals": {
+                    "today_minutes": total_since(today_start),
+                    "week_minutes": total_since(week_start),
+                    "month_minutes": total_since(month_start),
+                    "all_minutes": total_since(0),
+                },
+                "lifetime_by_category": sorted(
+                    lifetime.values(), key=lambda item: item["minutes"], reverse=True
+                ),
+                "first_entry_date": timeutil.logical_date_str(first, day_start_hour, tz) if first else None,
             }
         )
     finally:
@@ -467,7 +531,7 @@ def get_stats():
     try:
         tz = _tz(conn)
         day_start_hour = _day_start_hour(conn)
-        today = timeutil.local_date_str(timeutil.now_ms(), tz)
+        today = timeutil.logical_date_str(timeutil.now_ms(), day_start_hour, tz)
         from_s = _date_arg("from", (timeutil.parse_date(today) - timedelta(days=6)).isoformat())
         to_s = _date_arg("to", today)
         if to_s < from_s:

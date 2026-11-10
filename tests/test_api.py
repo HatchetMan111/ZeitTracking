@@ -1,6 +1,7 @@
 import pytest
 
 import api
+import timeutil
 from conftest import day_payload
 
 
@@ -284,3 +285,81 @@ def test_csv_escapes_formula_injection(client):
     )
     text = client.get(f"/api/export.csv?from={day['date']}&to={day['date']}").data.decode("utf-8-sig")
     assert "'=HYPERLINK" in text
+
+
+def _add_entry(client, cat, day, start_hour, start_minute, end_hour, end_minute):
+    start, _ = timeutil.day_bounds(day, 0, "Europe/Berlin")
+    client.post(
+        "/api/entries",
+        json={
+            "category_id": cat,
+            "started_at": start + start_hour * 3600000 + start_minute * 60000,
+            "ended_at": start + end_hour * 3600000 + end_minute * 60000,
+        },
+    )
+
+
+def test_summary_totals_and_lifetime(client, monkeypatch):
+    assert client.put(
+        "/api/settings", json={"timezone": "Europe/Berlin", "day_start_hour": 0}
+    ).status_code == 200
+    now = timeutil.day_bounds("2026-03-15", 0, "Europe/Berlin")[0] + 12 * 3600000
+    monkeypatch.setattr(timeutil, "now_ms", lambda: now)
+    cat = category_id(client, "Arbeit")
+
+    _add_entry(client, cat, "2026-03-15", 8, 0, 9, 0)    # heute, 60
+    _add_entry(client, cat, "2026-03-14", 10, 0, 10, 30)  # gleiche Woche, 30
+    _add_entry(client, cat, "2026-03-01", 9, 0, 10, 0)    # gleicher Monat, 60
+    _add_entry(client, cat, "2026-02-20", 9, 0, 10, 0)    # nur gesamt, 60
+
+    payload = client.get("/api/summary").get_json()
+    assert payload["totals"] == {
+        "today_minutes": 60,
+        "week_minutes": 90,
+        "month_minutes": 150,
+        "all_minutes": 210,
+    }
+    assert payload["lifetime_by_category"][0]["name"] == "Arbeit"
+    assert payload["lifetime_by_category"][0]["minutes"] == 210
+    assert payload["first_entry_date"] == "2026-02-20"
+
+
+def test_summary_respects_day_start_before_morning(client, monkeypatch):
+    client.put("/api/settings", json={"timezone": "Europe/Berlin", "day_start_hour": 4})
+    now = timeutil.day_bounds("2026-03-15", 0, "Europe/Berlin")[0] + 2 * 3600000
+    monkeypatch.setattr(timeutil, "now_ms", lambda: now)
+    cat = category_id(client, "Arbeit")
+    _add_entry(client, cat, "2026-03-14", 22, 0, 23, 0)
+
+    payload = client.get("/api/summary").get_json()
+    assert payload["totals"]["today_minutes"] == 60
+    assert payload["totals"]["week_minutes"] == 60
+
+
+def test_summary_counts_running_timer(client, monkeypatch):
+    clock = [timeutil.day_bounds("2026-03-15", 0, "Europe/Berlin")[0] + 8 * 3600000]
+    monkeypatch.setattr(timeutil, "now_ms", lambda: clock[0])
+    cat = category_id(client, "Arbeit")
+    client.post(f"/api/timers/{cat}/start")
+    clock[0] += 30 * 60000
+
+    payload = client.get("/api/summary").get_json()
+    assert payload["totals"]["today_minutes"] == 30
+    assert payload["totals"]["all_minutes"] == 30
+    assert client.get("/api/stats?from=2026-03-15&to=2026-03-15").get_json()["total_minutes"] == 30
+
+
+def test_summary_handles_dst_crossing(client, monkeypatch):
+    client.put("/api/settings", json={"timezone": "Europe/Berlin", "day_start_hour": 0})
+    now = timeutil.day_bounds("2026-03-30", 0, "Europe/Berlin")[0] + 12 * 3600000
+    monkeypatch.setattr(timeutil, "now_ms", lambda: now)
+    cat = category_id(client, "Arbeit")
+    start = timeutil.day_bounds("2026-03-28", 0, "Europe/Berlin")[0] + 22 * 3600000
+    end = timeutil.parse_ts("2026-03-29T04:00", "Europe/Berlin")
+    client.post(
+        "/api/entries",
+        json={"category_id": cat, "started_at": start, "ended_at": end},
+    )
+    payload = client.get("/api/summary").get_json()
+    assert payload["totals"]["all_minutes"] == 300
+    assert payload["totals"]["today_minutes"] == 0
