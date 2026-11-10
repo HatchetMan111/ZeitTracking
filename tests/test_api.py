@@ -216,6 +216,28 @@ def test_category_crud_and_archive(client):
     assert "Test 2" not in names
 
 
+def test_category_detail_label_roundtrip(client):
+    created = client.post(
+        "/api/categories",
+        json={"name": "Serien", "color": "#123456", "detail_label": "  Welche Serie?  "},
+    )
+    assert created.status_code == 201
+    cat = created.get_json()["category"]
+    assert cat["detail_label"] == "Welche Serie?"
+
+    listed = client.get("/api/state").get_json()["categories"]
+    assert next(item for item in listed if item["id"] == cat["id"])["detail_label"] == "Welche Serie?"
+
+    assert client.patch(
+        f"/api/categories/{cat['id']}", json={"detail_label": "x" * 61}
+    ).status_code == 400
+
+    cleared = client.patch(
+        f"/api/categories/{cat['id']}", json={"detail_label": "   "}
+    ).get_json()["category"]
+    assert cleared["detail_label"] == ""
+
+
 def test_auth_guard(client, monkeypatch):
     monkeypatch.setattr(api, "PASSWORD", "geheim")
 

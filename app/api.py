@@ -606,6 +606,13 @@ def export_csv():
         conn.close()
 
 
+def _detail_label(value: object) -> str:
+    text = str(value or "").strip()
+    if len(text) > 60:
+        raise ApiError("Detail-Label darf höchstens 60 Zeichen lang sein")
+    return text
+
+
 @bp.get("/categories")
 def list_categories():
     conn = db.connect()
@@ -632,13 +639,15 @@ def create_category():
         if parent_id is not None:
             _category(conn, int(parent_id))
         goal = max(0, int(data.get("goal_minutes_week") or 0))
+        detail_label = _detail_label(data.get("detail_label", ""))
         now = timeutil.now_ms()
         with conn:
             order = conn.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM categories").fetchone()["n"]
             cursor = conn.execute(
-                "INSERT INTO categories (name, color, icon, parent_id, goal_minutes_week, sort_order, archived, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
-                (name, color, icon, parent_id, goal, order, now),
+                "INSERT INTO categories"
+                " (name, color, icon, parent_id, goal_minutes_week, detail_label, sort_order, archived, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)",
+                (name, color, icon, parent_id, goal, detail_label, order, now),
             )
             row = _category(conn, cursor.lastrowid)
         return jsonify({"category": dict(row)}), 201
@@ -669,6 +678,8 @@ def update_category(category_id: int):
             fields["goal_minutes_week"] = max(0, int(data["goal_minutes_week"] or 0))
         if "archived" in data:
             fields["archived"] = 1 if data["archived"] else 0
+        if "detail_label" in data:
+            fields["detail_label"] = _detail_label(data["detail_label"])
         if "sort_order" in data:
             fields["sort_order"] = int(data["sort_order"])
         if not fields:
