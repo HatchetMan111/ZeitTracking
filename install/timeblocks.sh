@@ -325,6 +325,8 @@ cat > "$BOOTSTRAP_FILE" <<'BOOTSTRAP'
 # Idempotent: apt + git reset + systemd restart.
 #
 set -Eeuo pipefail
+umask 022
+export LANG=C.UTF-8
 
 REPO=""
 BRANCH="main"
@@ -458,6 +460,7 @@ fi
 ln -sfn "$GUNICORN_BIN" /usr/local/bin/timeblocks-gunicorn
 
 chown -R "root:root" "$APP_DIR"
+chmod -R a+rX "$APP_DIR"
 chown -R "${APP_USER}:${APP_USER}" "$DATA_DIR"
 chmod 750 "$DATA_DIR"
 
