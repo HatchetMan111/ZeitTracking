@@ -15,7 +15,7 @@ import timeutil
 bp = Blueprint("api", __name__)
 
 PASSWORD = os.environ.get("TIMEBLOCKS_PASSWORD", "")
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 MIN_ENTRY_MS = 1000
 MAX_DURATION_MINUTES = 1440
 

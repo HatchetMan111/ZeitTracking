@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS categories (
     icon              TEXT    NOT NULL DEFAULT 'dot',
     parent_id         INTEGER REFERENCES categories(id) ON DELETE SET NULL,
     goal_minutes_week INTEGER NOT NULL DEFAULT 0,
+    detail_label      TEXT    NOT NULL DEFAULT '',
     sort_order        INTEGER NOT NULL DEFAULT 0,
     archived          INTEGER NOT NULL DEFAULT 0,
     created_at        INTEGER NOT NULL
@@ -55,17 +56,48 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 """
 
 DEFAULT_CATEGORIES = [
-    ("Arbeit", "#FF375F", "briefcase", 0),
-    ("Projekt", "#0A84FF", "code", 0),
-    ("Meeting", "#BF5AF2", "users", 0),
-    ("Fokus", "#30D158", "target", 0),
-    ("Lernen", "#FFD60A", "book", 0),
-    ("Sport", "#FF9F0A", "activity", 0),
-    ("Privat", "#64D2FF", "home", 0),
-    ("Pause", "#8E8E93", "pause", 0),
+    ("Arbeit", "#FF375F", "briefcase", 0, ""),
+    ("Projekt", "#0A84FF", "code", 0, ""),
+    ("Meeting", "#BF5AF2", "users", 0, ""),
+    ("Fokus", "#30D158", "target", 0, ""),
+    ("Lernen", "#FFD60A", "book", 0, ""),
+    ("Sport", "#FF9F0A", "activity", 0, ""),
+    ("Privat", "#64D2FF", "home", 0, ""),
+    ("Pause", "#8E8E93", "pause", 0, ""),
+    ("Filme", "#FF6482", "film", 0, "Welcher Film?"),
 ]
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+
+def _has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    return any(row["name"] == column for row in conn.execute(f"PRAGMA table_info({table})"))
+
+
+def migrate_schema(conn: sqlite3.Connection) -> None:
+    stamp = now_ms()
+    if not _has_column(conn, "categories", "detail_label"):
+        conn.execute("ALTER TABLE categories ADD COLUMN detail_label TEXT NOT NULL DEFAULT ''")
+
+    movies = conn.execute(
+        "SELECT 1 FROM categories WHERE lower(name) = 'filme' LIMIT 1"
+    ).fetchone()
+    if movies is None:
+        order = conn.execute(
+            "SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM categories"
+        ).fetchone()["n"]
+        conn.execute(
+            "INSERT INTO categories"
+            " (name, color, icon, parent_id, goal_minutes_week, detail_label, sort_order, archived, created_at)"
+            " VALUES (?, ?, ?, NULL, ?, ?, ?, 0, ?)",
+            ("Filme", "#FF6482", "film", 0, "Welcher Film?", order, stamp),
+        )
+
+    conn.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (2, ?)",
+        (stamp,),
+    )
+    conn.commit()
 
 
 def now_ms() -> int:
@@ -142,12 +174,14 @@ def init_db() -> None:
         count = conn.execute("SELECT COUNT(*) AS n FROM categories").fetchone()["n"]
         if count == 0:
             stamp = now_ms()
-            for index, (name, color, icon, goal) in enumerate(DEFAULT_CATEGORIES):
+            for index, (name, color, icon, goal, detail_label) in enumerate(DEFAULT_CATEGORIES):
                 conn.execute(
-                    "INSERT INTO categories (name, color, icon, parent_id, goal_minutes_week, sort_order, archived, created_at)"
-                    " VALUES (?, ?, ?, NULL, ?, ?, 0, ?)",
-                    (name, color, icon, goal, index, stamp),
+                    "INSERT INTO categories"
+                    " (name, color, icon, parent_id, goal_minutes_week, detail_label, sort_order, archived, created_at)"
+                    " VALUES (?, ?, ?, NULL, ?, ?, ?, 0, ?)",
+                    (name, color, icon, goal, detail_label, index, stamp),
                 )
+        migrate_schema(conn)
         conn.commit()
         ensure_consistency(conn)
     finally:
