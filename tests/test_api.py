@@ -201,6 +201,39 @@ def test_csv_export(client):
     assert "CSV Test" in text
 
 
+def test_csv_export_uses_detail_column(client):
+    cat = category_id(client)
+    day = day_payload(client)
+    start = day["start_ms"] + 8 * 3600000
+    client.post(
+        "/api/entries",
+        json={
+            "category_id": cat,
+            "started_at": start,
+            "ended_at": start + 3600000,
+            "note": "Dune: Part Two; =2+2",
+        },
+    )
+    client.post(
+        "/api/entries",
+        json={
+            "category_id": cat,
+            "started_at": start + 2 * 3600000,
+            "ended_at": start + 3 * 3600000,
+            "note": "=2+2",
+        },
+    )
+    text = client.get(f"/api/export.csv?from={day['date']}&to={day['date']}").data.decode(
+        "utf-8-sig"
+    )
+    header = text.splitlines()[0]
+    assert "Detail" in header
+    assert "Notiz" not in header
+    assert "'=Dune" not in text  # Formel wird nur am Feldanfang escaped
+    assert "Dune: Part Two" in text
+    assert "'=2+2" in text
+
+
 def test_settings_validation_and_update(client):
     assert client.put("/api/settings", json={"day_start_hour": 25}).status_code == 400
     assert client.put("/api/settings", json={"timezone": "Nirgendwo/Nowhere"}).status_code == 400

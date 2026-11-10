@@ -630,7 +630,7 @@ def export_csv():
 
         buffer = io.StringIO()
         writer = csv.writer(buffer, delimiter=delimiter, lineterminator="\r\n")
-        writer.writerow(["Datum", "Kategorie", "Start", "Ende", "Dauer (min)", "Dauer (h:mm)", "Notiz"])
+        writer.writerow(["Datum", "Kategorie", "Start", "Ende", "Dauer (min)", "Dauer (h:mm)", "Detail"])
         for row in rows:
             overlap = _overlap_ms(row["started_at"], _effective_end(row, now), start, end)
             if overlap <= 0:
