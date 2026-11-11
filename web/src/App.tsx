@@ -1,23 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { ApiError, api, errorMessage } from "./api/client";
-import type { DayPoint, StatsPayload, SummaryPayload } from "./api/types";
+import { api } from "./api/client";
 import AppShell, { type Tab } from "./components/AppShell";
 import { LoginView } from "./features/auth/LoginView";
 import { DashboardView } from "./features/dashboard/DashboardView";
 import { DayView } from "./features/day/DayView";
 import { useAppData } from "./hooks/useAppData";
+import { useDashboardData } from "./hooks/useDashboardData";
 import { useNow } from "./hooks/useNow";
-import { addDays, periodRange, type Period, type Range } from "./lib/ranges";
+import { periodRange, type Period, type Range } from "./lib/ranges";
 import { localDateStr } from "./lib/time";
 import "./styles/global.css";
-
-type DashboardData = {
-  summary: SummaryPayload;
-  stats: StatsPayload;
-  heatmap: DayPoint[];
-  from: string;
-  to: string;
-};
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("day");
@@ -25,10 +17,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [period, setPeriod] = useState<Period>("week");
   const [customRange, setCustomRange] = useState<Range | null>(null);
-  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
-  const [dashboardError, setDashboardError] = useState("");
-  const [dashboardLoading, setDashboardLoading] = useState(false);
-  const now = useNow() + data.clockOffset;
+  const now = useNow(tab === "day" ? 1000 : 60000) + data.clockOffset;
 
   const timezone = data.state?.timezone ?? "";
   const today = timezone ? localDateStr(now, timezone) : "";
@@ -41,52 +30,24 @@ export default function App() {
     }
   }, [period, today, customRange]);
 
+  const {
+    data: dashboardData,
+    error: dashboardError,
+    clear: clearDashboard,
+  } = useDashboardData({
+    enabled: tab === "dashboard" && data.status === "ready" && Boolean(data.state),
+    today,
+    range,
+    refreshKey: data.day,
+    onAuth: () => void data.reload(),
+  });
+
   useEffect(() => {
-    if (tab !== "dashboard" || data.status !== "ready" || !data.state || !range) return;
-    let ignore = false;
-    setDashboardLoading(true);
-    setDashboardError("");
-    const periodParams = new URLSearchParams({
-      from: range.from,
-      to: range.to,
-      group_by: "category",
-    });
-    const heatParams = new URLSearchParams({
-      from: addDays(today, -364),
-      to: today,
-      group_by: "day",
-    });
-    Promise.all([
-      api.get<SummaryPayload>("/summary"),
-      api.get<StatsPayload>(`/stats?${periodParams.toString()}`),
-      api.get<StatsPayload>(`/stats?${heatParams.toString()}`),
-    ])
-      .then(([summary, stats, heat]) => {
-        if (ignore) return;
-        setDashboard({
-          summary,
-          stats,
-          heatmap: heat.days,
-          from: range.from,
-          to: range.to,
-        });
-        setDashboardLoading(false);
-      })
-      .catch((err: unknown) => {
-        if (ignore) return;
-        setDashboardLoading(false);
-        if (err instanceof ApiError && err.status === 401) {
-          void data.reload();
-          return;
-        }
-        setDashboardError(errorMessage(err));
-      });
-    return () => {
-      ignore = true;
-    };
-  }, [tab, data.status, data.state, data.day, data.reload, range, today]);
+    if (data.status !== "ready") clearDashboard();
+  }, [data.status, clearDashboard]);
 
   const logout = async () => {
+    clearDashboard();
     await api.post("/logout", {});
     await data.reload();
   };
@@ -106,8 +67,8 @@ export default function App() {
   if (!data.state || !data.day) return <p className="center">{data.error || "Fehler"}</p>;
 
   const ready =
-    dashboard && range && dashboard.from === range.from && dashboard.to === range.to
-      ? dashboard
+    dashboardData && range && dashboardData.from === range.from && dashboardData.to === range.to
+      ? dashboardData
       : null;
 
   return (
@@ -145,9 +106,7 @@ export default function App() {
               onGoDay={() => setTab("day")}
             />
           ) : (
-            <p className="center">
-              {dashboardLoading ? "Dashboard wird geladen …" : "Noch keine Dashboard-Daten."}
-            </p>
+            <p className="center">Dashboard wird geladen …</p>
           )
         ) : (
           <p className="center">In Arbeit</p>

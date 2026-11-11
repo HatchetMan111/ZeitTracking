@@ -135,6 +135,7 @@
 .heat-2 { background: #247347; }
 .heat-3 { background: #2aa855; }
 .heat-4 { background: var(--green); }
+.heat-fill { background: transparent; }
 .heatmap-block { display: grid; gap: 8px; margin: 16px 0; }
 .heatmap-block .heatmap { margin: 0; }
 .heat-legend { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; }
@@ -170,7 +171,7 @@
 .dashboard-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 10px; }
 .dashboard-head > button { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 8px 12px; color: var(--text); }
 .dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: 12px; }
-.detail-cell { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.detail-cell { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .category-row {
   display: grid; grid-template-columns: auto minmax(110px, 1fr) 90px 110px minmax(180px, 1.2fr) auto;
   gap: 10px; align-items: center; padding: 12px;

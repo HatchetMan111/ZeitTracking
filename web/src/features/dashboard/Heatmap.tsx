@@ -4,6 +4,8 @@ import { fmtDuration } from "../../lib/time";
 
 export function Heatmap({ days }: { days: DayPoint[] }) {
   const weeks = heatmapWeeks(days);
+  const firstReal = days[0]?.date;
+  const lastReal = days[days.length - 1]?.date;
   return (
     <div className="heatmap-block">
       <div
@@ -14,13 +16,18 @@ export function Heatmap({ days }: { days: DayPoint[] }) {
       >
         {weeks.map((week) => (
           <div className="heat-week" key={week[0].date}>
-            {week.map((day) => (
-              <span
-                key={day.date}
-                className={`heat heat-${heatLevel(day.minutes)}`}
-                title={`${day.date}: ${fmtDuration(day.minutes)}`}
-              />
-            ))}
+            {week.map((day) => {
+              const fill =
+                !firstReal || !lastReal || day.date < firstReal || day.date > lastReal;
+              return (
+                <span
+                  key={day.date}
+                  className={`heat ${fill ? "heat-fill" : `heat-${heatLevel(day.minutes)}`}`}
+                  title={fill ? undefined : `${day.date}: ${fmtDuration(day.minutes)}`}
+                  aria-hidden={fill ? "true" : undefined}
+                />
+              );
+            })}
           </div>
         ))}
       </div>

@@ -4,7 +4,7 @@ import { DayTable } from "./DayTable";
 
 describe("DayTable", () => {
   it("renders entry details and duration", () => {
-    render(
+    const { container } = render(
       <DayTable
         timezone="Europe/Berlin"
         entries={[{
@@ -17,6 +17,7 @@ describe("DayTable", () => {
     expect(screen.getByText("Dune")).toBeInTheDocument();
     expect(screen.getByText("1h 00m")).toBeInTheDocument();
     expect(screen.getByText("Filme")).toBeInTheDocument();
+    expect(container.querySelector(".detail-cell")).toHaveAttribute("title", "Dune");
   });
 
   it("renders a timezone-aware day and clock range", () => {

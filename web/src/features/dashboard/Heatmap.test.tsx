@@ -35,4 +35,21 @@ describe("Heatmap", () => {
     expect(screen.getByText("wenig")).toBeInTheDocument();
     expect(screen.getByText("viel")).toBeInTheDocument();
   });
+
+  it("marks synthetic padding cells without titles", () => {
+    const { container } = render(
+      <Heatmap
+        days={[
+          { date: "2026-11-10", minutes: 10 },
+          { date: "2026-11-11", minutes: 0 },
+        ]}
+      />,
+    );
+    expect(container.querySelectorAll(".heat-fill").length).toBe(5);
+    const fill = container.querySelector(".heat-fill");
+    expect(fill).not.toHaveAttribute("title");
+    expect(fill).toHaveAttribute("aria-hidden", "true");
+    expect(container.querySelector('[title="2026-11-10: 10m"]')).toBeTruthy();
+    expect(container.querySelector('[title="2026-11-11: 0m"]')).toBeTruthy();
+  });
 });

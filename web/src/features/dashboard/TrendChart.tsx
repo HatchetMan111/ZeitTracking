@@ -27,10 +27,13 @@ export function TrendChart({ points }: { points: { label: string; minutes: numbe
         </defs>
         <polygon points={area} fill="url(#trend-fill)" />
         <polyline points={line} fill="none" stroke="var(--accent)" strokeWidth={2.5} />
+        {points.length === 1 ? (
+          <circle cx={x(0)} cy={y(points[0].minutes)} r={4} fill="var(--accent)" />
+        ) : null}
       </svg>
       <figcaption>
         <span>{points[0]?.label}</span>
-        <span>max. {fmtDuration(max)}</span>
+        <span>{points.length === 0 ? "keine Daten" : `max. ${fmtDuration(max)}`}</span>
         <span>{points[points.length - 1]?.label}</span>
       </figcaption>
     </figure>

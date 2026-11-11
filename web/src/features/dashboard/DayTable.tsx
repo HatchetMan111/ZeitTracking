@@ -28,7 +28,7 @@ export function DayTable({ entries, timezone }: { entries: StatsEntry[]; timezon
                 <span className="dot" style={{ background: entry.color }} />
                 {entry.label}
               </td>
-              <td className="detail-cell">{entry.note || "–"}</td>
+              <td className="detail-cell" title={entry.note}>{entry.note || "–"}</td>
               <td>{fmtDuration(entry.minutes)}</td>
             </tr>
           ))}

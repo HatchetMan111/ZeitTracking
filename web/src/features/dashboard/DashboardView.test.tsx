@@ -164,9 +164,22 @@ describe("dashboard", () => {
   });
 
   it("renders the export button, trend, heatmap and day table when populated", () => {
-    render(<DashboardView {...baseProps} stats={{ ...stats, entries: [entry] }} />);
+    render(
+      <DashboardView
+        {...baseProps}
+        stats={{
+          ...stats,
+          entries: [entry],
+          days: [
+            { date: "2026-11-09", minutes: 30 },
+            { date: "2026-11-10", minutes: 70 },
+          ],
+        }}
+      />,
+    );
     expect(screen.getByTestId("export-csv")).toHaveTextContent("CSV exportieren");
-    expect(screen.getByTestId("trend")).toBeInTheDocument();
+    expect(screen.getByTestId("trend")).toHaveTextContent("11-09");
+    expect(screen.getByTestId("trend")).toHaveTextContent("11-10");
     expect(screen.getByTestId("heatmap")).toBeInTheDocument();
     expect(screen.getByTestId("day-table")).toBeInTheDocument();
     expect(screen.getByText("Dune")).toBeInTheDocument();
