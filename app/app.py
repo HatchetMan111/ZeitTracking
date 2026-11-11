@@ -41,7 +41,9 @@ def create_app() -> Flask:
 
     @app.get("/sw.js")
     def service_worker():
-        response = send_from_directory(app.static_folder, "sw.js", mimetype="application/javascript")
+        response = send_from_directory(
+            app.static_folder, "sw.js", mimetype="application/javascript", max_age=0
+        )
         response.headers["Service-Worker-Allowed"] = "/"
         response.headers["Cache-Control"] = "no-cache"
         return response
@@ -52,9 +54,17 @@ def create_app() -> Flask:
 
     @app.errorhandler(404)
     def not_found(_error):
-        if request.path.startswith("/api/") or request.path.startswith("/static/"):
-            return jsonify({"error": "Nicht gefunden"}), 404
-        return send_from_directory(app.static_folder, "index.html")
+        if (
+            request.path.startswith("/api/")
+            or request.path == "/static"
+            or request.path.startswith("/static/")
+        ):
+            return (
+                jsonify({"error": "Nicht gefunden"}),
+                404,
+                {"Cache-Control": "no-cache"},
+            )
+        return send_from_directory(app.static_folder, "index.html", max_age=0)
 
     @app.after_request
     def security_headers(response: Response):
@@ -67,7 +77,7 @@ def create_app() -> Flask:
             "script-src 'self'; connect-src 'self'; manifest-src 'self'; base-uri 'none'",
         )
         if request.path.startswith("/api/"):
-            response.headers["Cache-Control"] = "no-store"
+            response.headers.setdefault("Cache-Control", "no-store")
         elif request.path.startswith("/static/assets/") and response.status_code < 400:
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
