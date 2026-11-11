@@ -135,6 +135,29 @@
 .heat-2 { background: #247347; }
 .heat-3 { background: #2aa855; }
 .heat-4 { background: var(--green); }
+.heatmap-block { display: grid; gap: 8px; margin: 16px 0; }
+.heatmap-block .heatmap { margin: 0; }
+.heat-legend { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; }
+.heat-legend span:first-child { margin-right: 2px; }
+.heat-legend span:last-child { margin-left: 2px; }
+.hl { display: inline-block; width: 11px; height: 11px; border-radius: 3px; }
+.hl-0 { background: var(--panel-2); }
+.hl-1 { background: #1f4d36; }
+.hl-2 { background: #247347; }
+.hl-3 { background: #2aa855; }
+.hl-4 { background: var(--green); }
+.table-scroll {
+  margin: 16px 0; overflow-x: auto; border: 1px solid var(--line);
+  border-radius: var(--radius); background: var(--panel);
+}
+.day-table { width: 100%; min-width: 640px; border-collapse: collapse; font-size: 13px; }
+.day-table th {
+  padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line);
+  color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+}
+.day-table td { padding: 10px 12px; border-bottom: 1px solid #ffffff0d; white-space: nowrap; }
+.day-table tr:last-child td { border-bottom: 0; }
+.day-table td .dot { margin-right: 8px; vertical-align: middle; }
 .trend { margin: 16px 0; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
 .trend svg { width: 100%; height: auto; display: block; }
 .trend figcaption { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }

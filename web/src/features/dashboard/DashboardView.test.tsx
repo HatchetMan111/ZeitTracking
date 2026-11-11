@@ -33,6 +33,28 @@ const emptyStats: StatsPayload = {
 
 const range = { from: "2026-11-09", to: "2026-11-15" };
 
+const heatmap = [
+  { date: "2026-11-09", minutes: 10 },
+  { date: "2026-11-10", minutes: 20 },
+];
+
+const entry = {
+  id: 7, category_id: 2, label: "Filme", color: "#FF6482",
+  started_at: 1794301200000, effective_end: 1794304800000, minutes: 60, note: "Dune",
+};
+
+const baseProps = {
+  summary,
+  stats,
+  heatmap,
+  timezone: "Europe/Berlin",
+  period: "week" as const,
+  range,
+  onPeriod: vi.fn(),
+  onExport: vi.fn(),
+  onGoDay: vi.fn(),
+};
+
 describe("dashboard", () => {
   it("renders KPI values", () => {
     render(<KpiCards summary={summary} />);
@@ -78,18 +100,11 @@ describe("dashboard", () => {
     expect(offset(arcs[1])).toBeCloseTo(-0.6 * circumference);
     expect(-offset(arcs[1]) + dash(arcs[1])[0]).toBeCloseTo(circumference);
   });
-  it("renders the empty message but keeps the period picker", () => {
-    render(
-      <DashboardView
-        summary={summary}
-        stats={emptyStats}
-        period="week"
-        range={range}
-        onPeriod={vi.fn()}
-      />,
-    );
+  it("renders the empty message but keeps the period picker and CSV export", () => {
+    render(<DashboardView {...baseProps} stats={emptyStats} heatmap={[]} />);
     expect(screen.getByText("Noch keine Zeit im gewählten Zeitraum.")).toBeInTheDocument();
     expect(screen.getByTestId("period-month")).toBeInTheDocument();
+    expect(screen.getByTestId("export-csv")).toBeInTheDocument();
     expect(screen.queryByTestId("kpi-today")).not.toBeInTheDocument();
   });
   it("renders no NaN or Infinity for a zero-total donut", () => {
@@ -141,12 +156,34 @@ describe("dashboard", () => {
       color: "#FF375F",
       minutes: 60 - index * 10,
     }));
-    const full: StatsPayload = { ...stats, total_minutes: 210, rows };
-    const { container } = render(
-      <DashboardView summary={summary} stats={full} period="week" range={range} onPeriod={vi.fn()} />,
-    );
+    const full: StatsPayload = { ...stats, total_minutes: 210, rows, entries: [entry] };
+    const { container } = render(<DashboardView {...baseProps} stats={full} />);
     expect(screen.getByTestId("kpi-today")).toBeInTheDocument();
     expect(screen.getByTestId("donut")).toBeInTheDocument();
     expect(container.querySelectorAll(".top-categories li")).toHaveLength(5);
+  });
+
+  it("renders the export button, trend, heatmap and day table when populated", () => {
+    render(<DashboardView {...baseProps} stats={{ ...stats, entries: [entry] }} />);
+    expect(screen.getByTestId("export-csv")).toHaveTextContent("CSV exportieren");
+    expect(screen.getByTestId("trend")).toBeInTheDocument();
+    expect(screen.getByTestId("heatmap")).toBeInTheDocument();
+    expect(screen.getByTestId("day-table")).toBeInTheDocument();
+    expect(screen.getByText("Dune")).toBeInTheDocument();
+  });
+
+  it("calls onExport from the CSV button", () => {
+    const onExport = vi.fn();
+    render(<DashboardView {...baseProps} onExport={onExport} />);
+    fireEvent.click(screen.getByTestId("export-csv"));
+    expect(onExport).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers Zum Tag and CSV export in the empty state", () => {
+    const onGoDay = vi.fn();
+    render(<DashboardView {...baseProps} stats={emptyStats} heatmap={[]} onGoDay={onGoDay} />);
+    expect(screen.getByTestId("export-csv")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Zum Tag"));
+    expect(onGoDay).toHaveBeenCalledTimes(1);
   });
 });
