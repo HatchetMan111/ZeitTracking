@@ -31,7 +31,7 @@ def create_app() -> Flask:
 
     @app.get("/")
     def index():
-        return send_from_directory(app.static_folder, "index.html")
+        return send_from_directory(app.static_folder, "index.html", max_age=0)
 
     @app.get("/manifest.webmanifest")
     def manifest():
@@ -52,7 +52,7 @@ def create_app() -> Flask:
 
     @app.errorhandler(404)
     def not_found(_error):
-        if request.path.startswith("/api/"):
+        if request.path.startswith("/api/") or request.path.startswith("/static/"):
             return jsonify({"error": "Nicht gefunden"}), 404
         return send_from_directory(app.static_folder, "index.html")
 
@@ -68,6 +68,8 @@ def create_app() -> Flask:
         )
         if request.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
+        elif request.path.startswith("/static/assets/") and response.status_code < 400:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
 
     return app
