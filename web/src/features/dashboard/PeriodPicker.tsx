@@ -11,11 +11,12 @@ export function PeriodPicker({
 }) {
   const emitCustom = (next: Range) => {
     if (!next.from || !next.to) return;
+    if (next.to < next.from) return;
     onPeriod("custom", next);
   };
 
   return (
-    <div className="period-picker">
+    <div className="period-picker" role="group" aria-label="Zeitraum">
       {(["week", "month", "year"] as const).map((value) => (
         <button
           key={value}

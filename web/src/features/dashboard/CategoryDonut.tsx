@@ -3,6 +3,8 @@ import { percentages } from "../../lib/charts";
 import { fmtDuration } from "../../lib/time";
 
 export function CategoryDonut({ rows, total }: { rows: StatRow[]; total: number }) {
+  const sum = rows.reduce((acc, row) => acc + row.minutes, 0);
+  const denom = sum > 0 ? sum : total;
   const parts = percentages(rows.map((row) => row.minutes));
   const size = 220;
   const stroke = 22;
@@ -12,10 +14,10 @@ export function CategoryDonut({ rows, total }: { rows: StatRow[]; total: number 
 
   return (
     <div className="donut" data-testid="donut">
-      <svg viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`Kategorien, ${fmtDuration(total)}`}>
+      <svg viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`Kategorien, ${fmtDuration(denom)}`}>
         <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--panel-2)" strokeWidth={stroke} />
         {rows.map((row) => {
-          const length = total > 0 ? (row.minutes / total) * circumference : 0;
+          const length = denom > 0 ? (row.minutes / denom) * circumference : 0;
           const element = (
             <circle
               key={row.key}
@@ -35,7 +37,7 @@ export function CategoryDonut({ rows, total }: { rows: StatRow[]; total: number 
         })}
       </svg>
       <div className="donut-center">
-        <strong>{fmtDuration(total)}</strong>
+        <strong>{fmtDuration(denom)}</strong>
         <span>gesamt</span>
       </div>
       <ul className="legend">
