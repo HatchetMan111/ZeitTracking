@@ -272,7 +272,7 @@ describe("SettingsView", () => {
     );
     expect(screen.queryByRole("button", { name: "Reaktivieren" })).not.toBeInTheDocument();
 
-    archivedList = [{ ...category, archived: 1 }];
+    archivedList = [{ ...category, id: 2, name: "Serien (alt)", archived: 1 }];
     view.rerender(
       <SettingsView
         state={{ ...state, categories: [{ ...category, name: "Serien" }] }}
@@ -330,7 +330,12 @@ describe("SettingsView", () => {
 
     view.rerender(
       <SettingsView
-        state={{ ...state, categories: [{ ...category, name: "Serien" }] }}
+        state={{
+          ...state,
+          day_start_hour: 9,
+          timezone: "UTC",
+          categories: [{ ...category, name: "Serien" }],
+        }}
         onChanged={view.onChanged}
         onError={view.onError}
         onLogout={view.onLogout}
@@ -339,6 +344,72 @@ describe("SettingsView", () => {
 
     expect(dayStart).toHaveValue(5);
     expect(timezone).toHaveValue("America/New_York");
+  });
+
+  it("keeps a typed category name when the same category reloads", () => {
+    const view = renderSettings();
+    const name = screen.getByLabelText("Name");
+    fireEvent.change(name, { target: { value: "Serien" } });
+
+    view.rerender(
+      <SettingsView
+        state={{ ...state, categories: [{ ...category, name: "Filme (neu)" }] }}
+        onChanged={view.onChanged}
+        onError={view.onError}
+        onLogout={view.onLogout}
+      />,
+    );
+
+    expect(name).toHaveValue("Serien");
+  });
+
+  it("reports a failed archive delete", async () => {
+    const { fetchMock, onError } = renderSettings({}, {
+      "/api/categories/1": () => jsonResponse({ error: "Archiv kaputt" }, 500),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Archivieren" }));
+
+    await waitFor(() => expect(onError).toHaveBeenCalledWith("Archiv kaputt"));
+    expect(requestCalls(fetchMock, "/api/categories/1", "DELETE")).toHaveLength(1);
+  });
+
+  it("ignores a stale archived response that resolves last", async () => {
+    let resolveFirst: (response: Response) => void = () => {};
+    let call = 0;
+    const view = renderSettings({}, {
+      "/api/categories?archived=1": () => {
+        call += 1;
+        if (call === 1) {
+          return new Promise<Response>((resolve) => {
+            resolveFirst = resolve;
+          });
+        }
+        return jsonResponse({
+          categories: [{ ...category, id: 2, name: "Serien", archived: 1 }],
+        });
+      },
+    });
+
+    view.rerender(
+      <SettingsView
+        state={{ ...state, categories: [{ ...category, name: "Serien" }] }}
+        onChanged={view.onChanged}
+        onError={view.onError}
+        onLogout={view.onLogout}
+      />,
+    );
+
+    expect(await screen.findByRole("button", { name: "Reaktivieren" })).toBeInTheDocument();
+    resolveFirst(
+      jsonResponse({ categories: [{ ...category, id: 3, name: "Veraltet", archived: 1 }] }),
+    );
+    await waitFor(() =>
+      expect(requestCalls(view.fetchMock, "/api/categories?archived=1")).toHaveLength(2),
+    );
+    await Promise.resolve();
+    expect(screen.queryByTestId("category-3")).not.toBeInTheDocument();
+    expect(screen.getByTestId("category-2")).toBeInTheDocument();
   });
 
   it("limits the detail label to 60 characters and allows clearing it", async () => {

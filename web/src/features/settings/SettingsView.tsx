@@ -125,6 +125,10 @@ export function SettingsView({
     void saveSettings(hour, tz);
   }
 
+  const visibleArchived = archived.filter(
+    (category) => !state.categories.some((active) => active.id === category.id),
+  );
+
   return (
     <section className="settings">
       <h1>Einstellungen</h1>
@@ -164,11 +168,11 @@ export function SettingsView({
           />
         ))}
       </ul>
-      {archived.length > 0 ? (
+      {visibleArchived.length > 0 ? (
         <>
           <h2>Archivierte Kategorien</h2>
           <ul>
-            {archived.map((category) => (
+            {visibleArchived.map((category) => (
               <CategoryEditor
                 key={`archived-${category.id}`}
                 category={category}
