@@ -8,6 +8,7 @@ export function LoginView({ onSuccess }: { onSuccess: () => void }) {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    setError("");
     setBusy(true);
     try {
       await api.post("/login", { password });

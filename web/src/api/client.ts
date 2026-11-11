@@ -16,7 +16,7 @@ async function request<T>(path: string, init: Init = {}): Promise<T> {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const isJson = (response.headers.get("content-type") || "").includes("application/json");
-  const payload = isJson ? await response.clone().json() : null;
+  const payload = isJson ? await response.json() : null;
   if (!response.ok) {
     throw new ApiError(payload?.error || `HTTP ${response.status}`, response.status);
   }

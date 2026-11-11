@@ -23,11 +23,13 @@ describe("api client", () => {
   it("throws ApiError with server message", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ error: "Nicht angemeldet" }), {
-          status: 401,
-          headers: { "content-type": "application/json" },
-        }),
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ error: "Nicht angemeldet" }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
       ),
     );
     await expect(api.get("/state")).rejects.toEqual(
