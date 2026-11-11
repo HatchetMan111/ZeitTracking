@@ -4,6 +4,7 @@ import type { AppState, Category, DayPayload, Entry } from "../../api/types";
 import { api } from "../../api/client";
 import { DayView } from "./DayView";
 import { EntrySheet } from "./EntrySheet";
+import { Timeline } from "./Timeline";
 import { TimerChips } from "./TimerChips";
 
 vi.mock("../../api/client", () => ({
@@ -17,6 +18,18 @@ vi.mock("../../api/client", () => ({
   errorMessage: (error: unknown) =>
     error instanceof Error ? error.message : "Unbekannter Fehler",
 }));
+
+if (!window.PointerEvent) {
+  class PointerEventPolyfill extends MouseEvent {
+    constructor(type: string, init?: PointerEventInit) {
+      super(type, init as MouseEventInit);
+    }
+  }
+  Object.defineProperty(window, "PointerEvent", {
+    value: PointerEventPolyfill,
+    writable: true,
+  });
+}
 
 const category: Category = {
   id: 1, name: "Filme", color: "#FF6482", icon: "film", parent_id: null,
@@ -146,6 +159,38 @@ describe("day view details", () => {
     expect(onStart).not.toHaveBeenCalled();
   });
 
+  it("does not send ended_at when saving a running entry", async () => {
+    vi.mocked(api.patch).mockResolvedValue(undefined);
+    const running: Entry = {
+      ...completedEntry,
+      id: 9,
+      ended_at: null,
+      effective_end: completedEntry.started_at,
+      minutes: null,
+    };
+
+    render(
+      <EntrySheet
+        open
+        categories={[category]}
+        initial={{ mode: "edit", entry: running }}
+        timezone="Europe/Berlin"
+        onClose={() => {}}
+        onSaved={() => {}}
+        onDelete={() => {}}
+        onError={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("sheet-save"));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalled());
+    const [path, body] = vi.mocked(api.patch).mock.calls[0];
+    expect(path).toBe("/entries/9");
+    expect(body).not.toHaveProperty("ended_at");
+    expect(body).toMatchObject({ category_id: 1, note: "Blade Runner" });
+  });
+
   it("offers undo after deleting a completed entry and recreates its snapshot", async () => {
     vi.mocked(api.del).mockResolvedValue(undefined);
     vi.mocked(api.post).mockResolvedValue(undefined);
@@ -178,5 +223,117 @@ describe("day view details", () => {
         note: completedEntry.note,
       }),
     );
+  });
+
+  it("reports a failed delete without showing the undo toast", async () => {
+    vi.mocked(api.del).mockRejectedValue(new Error("Löschen fehlgeschlagen"));
+    const onError = vi.fn();
+
+    render(
+      <DayView
+        state={state}
+        day={{ ...day, entries: [completedEntry] }}
+        nowMs={day.start_ms}
+        setDate={() => {}}
+        onChanged={() => {}}
+        onError={onError}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Löschen"));
+
+    await waitFor(() =>
+      expect(onError).toHaveBeenCalledWith("Löschen fehlgeschlagen"),
+    );
+    expect(screen.queryByTestId("toast")).toBeNull();
+  });
+
+  it("reports a failed undo and clears the toast", async () => {
+    vi.mocked(api.del).mockResolvedValue(undefined);
+    vi.mocked(api.post).mockRejectedValue(new Error("Wiederherstellen fehlgeschlagen"));
+    const onError = vi.fn();
+
+    render(
+      <DayView
+        state={state}
+        day={{ ...day, entries: [completedEntry] }}
+        nowMs={day.start_ms}
+        setDate={() => {}}
+        onChanged={() => {}}
+        onError={onError}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Löschen"));
+    await waitFor(() => expect(screen.getByTestId("toast")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Rückgängig" }));
+
+    await waitFor(() =>
+      expect(onError).toHaveBeenCalledWith("Wiederherstellen fehlgeschlagen"),
+    );
+    await waitFor(() => expect(screen.queryByTestId("toast")).toBeNull());
+  });
+});
+
+describe("timeline drag", () => {
+  const draggableDay: DayPayload = { ...day, entries: [completedEntry] };
+
+  function renderTimeline() {
+    const onPatch = vi.fn();
+    const onOpen = vi.fn();
+    render(
+      <Timeline
+        day={draggableDay}
+        now={day.start_ms}
+        timezone="Europe/Berlin"
+        onOpen={onOpen}
+        onPatch={onPatch}
+        onDelete={() => {}}
+        onCreate={() => {}}
+      />,
+    );
+    return { onPatch, onOpen };
+  }
+
+  it("applies the pointer delta once across multiple pointermove events", () => {
+    const { onPatch } = renderTimeline();
+    const block = screen.getByTestId(`timeline-block-${completedEntry.id}`);
+
+    fireEvent.pointerDown(block, { clientY: 100 });
+    fireEvent.pointerMove(window, { clientY: 100 + 56 });
+    fireEvent.pointerMove(window, { clientY: 100 + 112 });
+    fireEvent.pointerUp(window);
+
+    expect(onPatch).toHaveBeenCalledTimes(1);
+    expect(onPatch).toHaveBeenCalledWith(completedEntry.id, {
+      started_at: completedEntry.started_at + 2 * 3600000,
+      ended_at: completedEntry.effective_end + 2 * 3600000,
+    });
+  });
+
+  it("does not open the sheet for a click that follows a real drag", () => {
+    const { onOpen } = renderTimeline();
+    const block = screen.getByTestId(`timeline-block-${completedEntry.id}`);
+
+    fireEvent.pointerDown(block, { clientY: 100 });
+    fireEvent.pointerMove(window, { clientY: 156 });
+    fireEvent.pointerUp(window);
+    fireEvent.click(block);
+
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it("resets a cancelled drag without patching or suppressing clicks", () => {
+    const { onPatch, onOpen } = renderTimeline();
+    const block = screen.getByTestId(`timeline-block-${completedEntry.id}`);
+
+    fireEvent.pointerDown(block, { clientY: 100 });
+    fireEvent.pointerMove(window, { clientY: 156 });
+    fireEvent.pointerCancel(window);
+
+    expect(onPatch).not.toHaveBeenCalled();
+
+    fireEvent.click(block);
+    expect(onOpen).toHaveBeenCalledTimes(1);
   });
 });

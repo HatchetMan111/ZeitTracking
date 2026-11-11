@@ -5,9 +5,18 @@ import { clampRange, msToY, yToMs } from "../../lib/timeline";
 
 const PX_PER_HOUR = 56;
 
+type DragMode = "move" | "start" | "end";
+
 type Drag = {
   entry: Entry;
-  mode: "move" | "start" | "end";
+  mode: DragMode;
+  start: number;
+  end: number;
+};
+
+type DragBase = {
+  entry: Entry;
+  mode: DragMode;
   originY: number;
   start: number;
   end: number;
@@ -33,38 +42,81 @@ export function Timeline({
   const [drag, setDrag] = useState<Drag | null>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const suppressClickRef = useRef(false);
+  const baseRef = useRef<DragBase | null>(null);
+  const dragRef = useRef<Drag | null>(null);
 
   useEffect(() => {
     if (!drag) return;
     const move = (event: PointerEvent) => {
-      const delta = ((event.clientY - drag.originY) / PX_PER_HOUR) * 3600000;
-      if (drag.mode === "move") {
-        const next = clampRange(drag.start + delta, drag.end + delta, day.start_ms, day.end_ms);
-        setDrag({ ...drag, start: next.start, end: next.end });
-      } else if (drag.mode === "start") {
-        const next = clampRange(drag.start + delta, drag.end, day.start_ms, day.end_ms);
-        setDrag({ ...drag, start: next.start, end: next.end });
+      const base = baseRef.current;
+      if (!base) return;
+      const delta = ((event.clientY - base.originY) / PX_PER_HOUR) * 3600000;
+      let next;
+      if (base.mode === "move") {
+        next = clampRange(base.start + delta, base.end + delta, day.start_ms, day.end_ms);
+      } else if (base.mode === "start") {
+        next = clampRange(base.start + delta, base.end, day.start_ms, day.end_ms);
       } else {
-        const next = clampRange(drag.start, drag.end + delta, day.start_ms, day.end_ms);
-        setDrag({ ...drag, start: next.start, end: next.end });
+        next = clampRange(base.start, base.end + delta, day.start_ms, day.end_ms);
       }
+      const current: Drag = {
+        entry: base.entry,
+        mode: base.mode,
+        start: next.start,
+        end: next.end,
+      };
+      dragRef.current = current;
+      setDrag(current);
     };
-    const up = () => {
-      const changed =
-        drag.start !== drag.entry.started_at || drag.end !== drag.entry.effective_end;
-      if (changed) {
-        onPatch(drag.entry.id, { started_at: drag.start, ended_at: drag.end });
+    const finish = (commit: boolean) => {
+      const base = baseRef.current;
+      const current = dragRef.current;
+      baseRef.current = null;
+      dragRef.current = null;
+      if (!base || !current) {
+        suppressClickRef.current = false;
+        setDrag(null);
+        return;
       }
-      suppressClickRef.current = changed;
+      const changed = current.start !== base.start || current.end !== base.end;
+      if (commit && changed) {
+        onPatch(base.entry.id, { started_at: current.start, ended_at: current.end });
+      }
+      suppressClickRef.current = commit && changed;
       setDrag(null);
     };
+    const up = () => finish(true);
+    const cancel = () => finish(false);
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up, { once: true });
+    window.addEventListener("pointercancel", cancel, { once: true });
     return () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
     };
   }, [drag, day, onPatch]);
+
+  function beginDrag(entry: Entry, mode: DragMode, originY: number) {
+    if (entry.ended_at === null) return;
+    suppressClickRef.current = false;
+    const base: DragBase = {
+      entry,
+      mode,
+      originY,
+      start: entry.started_at,
+      end: entry.effective_end,
+    };
+    baseRef.current = base;
+    const current: Drag = {
+      entry,
+      mode,
+      start: base.start,
+      end: base.end,
+    };
+    dragRef.current = current;
+    setDrag(current);
+  }
 
   return (
     <div className="timeline" style={{ height: 24 * PX_PER_HOUR }} ref={trackRef}>
@@ -96,11 +148,7 @@ export function Timeline({
               onPointerDown={(event) => {
                 if (entry.ended_at === null) return;
                 event.preventDefault();
-                suppressClickRef.current = false;
-                setDrag({
-                  entry, mode: "move", originY: event.clientY,
-                  start: entry.started_at, end: entry.effective_end,
-                });
+                beginDrag(entry, "move", event.clientY);
               }}
               onClick={() => {
                 if (suppressClickRef.current) {
@@ -138,13 +186,11 @@ export function Timeline({
                 <>
                   <i className="handle top" onPointerDown={(event) => {
                     event.stopPropagation();
-                    suppressClickRef.current = false;
-                    setDrag({ entry, mode: "start", originY: event.clientY, start: entry.started_at, end: entry.effective_end });
+                    beginDrag(entry, "start", event.clientY);
                   }} />
                   <i className="handle bottom" onPointerDown={(event) => {
                     event.stopPropagation();
-                    suppressClickRef.current = false;
-                    setDrag({ entry, mode: "end", originY: event.clientY, start: entry.started_at, end: entry.effective_end });
+                    beginDrag(entry, "end", event.clientY);
                   }} />
                 </>
               ) : null}

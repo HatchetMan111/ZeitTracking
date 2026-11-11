@@ -59,9 +59,10 @@ export function EntrySheet({
       setMinutes(30);
       setNote("");
     }
-  }, [initial, categories, timezone]);
+  }, [initial, timezone]);
 
   const category = categories.find((item) => item.id === categoryId);
+  const isRunning = editing?.ended_at === null;
 
   async function save() {
     setBusy(true);
@@ -74,12 +75,18 @@ export function EntrySheet({
           note,
         });
       } else if (editing) {
-        await api.patch(`/entries/${editing.id}`, {
+        const payload: {
+          category_id: number;
+          started_at: string;
+          ended_at?: string;
+          note: string;
+        } = {
           category_id: categoryId,
           started_at: start,
-          ended_at: end,
           note,
-        });
+        };
+        if (editing.ended_at !== null) payload.ended_at = end;
+        await api.patch(`/entries/${editing.id}`, payload);
       } else if (initial?.mode === "create-duration") {
         await api.post("/entries/duration", {
           category_id: categoryId,
@@ -130,8 +137,13 @@ export function EntrySheet({
           <Field label="Start">
             <input type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} />
           </Field>
-          <Field label="Ende">
-            <input type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} />
+          <Field label={isRunning ? "Ende (läuft noch)" : "Ende"}>
+            <input
+              type="datetime-local"
+              value={end}
+              disabled={isRunning}
+              onChange={(event) => setEnd(event.target.value)}
+            />
           </Field>
         </>
       )}

@@ -59,7 +59,13 @@ export function DayView({
             ended_at: entry.effective_end,
             note: entry.note,
           };
-    await run(() => api.del(`/entries/${entry.id}`));
+    try {
+      await api.del(`/entries/${entry.id}`);
+    } catch (error) {
+      onError(errorMessage(error));
+      return;
+    }
+    onChanged();
     setDeleted({
       entry,
       undo: async () => {
@@ -121,7 +127,9 @@ export function DayView({
               <span>{fmtDuration(entry.overlap_minutes ?? entry.minutes ?? 0)}</span>
               {entry.note ? <em>{entry.note}</em> : null}
             </button>
-            <button type="button" aria-label="Löschen" onClick={() => void remove(entry)}>×</button>
+            {entry.ended_at !== null ? (
+              <button type="button" aria-label="Löschen" onClick={() => void remove(entry)}>×</button>
+            ) : null}
           </li>
         ))}
       </ul>
@@ -145,7 +153,10 @@ export function DayView({
           message="Eintrag gelöscht"
           actionLabel="Rückgängig"
           onAction={() => {
-            void deleted.undo().finally(() => setDeleted(null));
+            void deleted
+              .undo()
+              .catch((error) => onError(errorMessage(error)))
+              .finally(() => setDeleted(null));
           }}
           onClose={() => setDeleted(null)}
         />
