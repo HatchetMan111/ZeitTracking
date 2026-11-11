@@ -270,9 +270,24 @@ if pct status "$CT_ID" >/dev/null 2>&1; then
       msg_info "Benenne CT ${CT_ID} von 'timeblocks' in '${HOSTNAME_ARG}' um ..."
       if ! pct set "$CT_ID" --hostname "$HOSTNAME_ARG" 2>/dev/null; then
         msg_warn "Hostname-Änderung im Betrieb abgelehnt – CT wird kurz gestoppt."
-        pct stop "$CT_ID"
-        pct set "$CT_ID" --hostname "$HOSTNAME_ARG"
-        pct start "$CT_ID" || true
+        if ! pct stop "$CT_ID"; then
+          pct start "$CT_ID" >/dev/null 2>&1 || true
+          msg_error "CT ${CT_ID} konnte nicht gestoppt werden – Hostname bleibt unverändert."
+          exit 1
+        fi
+        if pct set "$CT_ID" --hostname "$HOSTNAME_ARG"; then
+          if ! pct start "$CT_ID"; then
+            msg_error "Hostname geändert, aber CT ${CT_ID} konnte nicht gestartet werden – bitte manuell starten."
+            exit 1
+          fi
+        else
+          if ! pct start "$CT_ID"; then
+            msg_error "Hostname-Änderung fehlgeschlagen und CT ${CT_ID} konnte nicht gestartet werden – bitte manuell prüfen."
+            exit 1
+          fi
+          msg_error "Hostname konnte auch im gestoppten Zustand nicht geändert werden – CT läuft wieder mit '${EXISTING_HOSTNAME}'."
+          exit 1
+        fi
       fi
       msg_ok "Hostname in PVE-Config: ${HOSTNAME_ARG}"
     else
