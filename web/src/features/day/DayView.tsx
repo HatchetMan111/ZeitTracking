@@ -3,7 +3,7 @@ import { api, errorMessage } from "../../api/client";
 import type { AppState, DayPayload, Entry } from "../../api/types";
 import Toast from "../../components/Toast";
 import { fmtClock, fmtDateLong, fmtDuration, localDateStr, shiftDate } from "../../lib/time";
-import { EntrySheet, type SheetDraft } from "./EntrySheet";
+import { EntrySheet, isRunningTimeline, type SheetDraft } from "./EntrySheet";
 import { Timeline } from "./Timeline";
 import { TimerChips } from "./TimerChips";
 
@@ -44,7 +44,7 @@ export function DayView({
   }
 
   async function remove(entry: Entry) {
-    if (entry.ended_at === null) return;
+    if (isRunningTimeline(entry)) return;
     const snapshot =
       entry.kind === "duration"
         ? {
@@ -127,9 +127,9 @@ export function DayView({
               <span>{fmtDuration(entry.overlap_minutes ?? entry.minutes ?? 0)}</span>
               {entry.note ? <em>{entry.note}</em> : null}
             </button>
-            {entry.ended_at !== null ? (
+            {isRunningTimeline(entry) ? null : (
               <button type="button" aria-label="Löschen" onClick={() => void remove(entry)}>×</button>
-            ) : null}
+            )}
           </li>
         ))}
       </ul>

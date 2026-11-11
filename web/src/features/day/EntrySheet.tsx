@@ -10,6 +10,10 @@ export type SheetDraft =
   | { mode: "create-duration"; date: string }
   | { mode: "edit"; entry: Entry };
 
+export function isRunningTimeline(entry: Entry): boolean {
+  return entry.kind === "timeline" && entry.ended_at === null;
+}
+
 export function EntrySheet({
   open,
   categories,
@@ -62,7 +66,7 @@ export function EntrySheet({
   }, [initial, timezone]);
 
   const category = categories.find((item) => item.id === categoryId);
-  const isRunning = editing?.ended_at === null;
+  const isRunning = editing !== null && isRunningTimeline(editing);
 
   async function save() {
     setBusy(true);
@@ -158,7 +162,7 @@ export function EntrySheet({
         />
       </Field>
       <div className="sheet-actions">
-        {editing ? (
+        {editing && !isRunning ? (
           <button type="button" className="danger" onClick={() => onDelete(editing)}>
             Löschen
           </button>

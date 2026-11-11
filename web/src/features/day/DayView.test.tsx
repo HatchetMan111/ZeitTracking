@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AppState, Category, DayPayload, Entry } from "../../api/types";
 import { api } from "../../api/client";
+import { localDateStr } from "../../lib/time";
 import { DayView } from "./DayView";
 import { EntrySheet } from "./EntrySheet";
 import { Timeline } from "./Timeline";
@@ -60,6 +61,28 @@ const completedEntry: Entry = {
   updated_at: 0,
   category_name: "Filme",
   category_color: "#FF6482",
+};
+
+const durationEntry: Entry = {
+  id: 11,
+  category_id: 1,
+  kind: "duration",
+  started_at: day.start_ms + 3600000,
+  ended_at: null,
+  effective_end: day.start_ms + 3600000,
+  minutes: 45,
+  note: "Podcast",
+  updated_at: 0,
+  category_name: "Filme",
+  category_color: "#FF6482",
+  overlap_minutes: 45,
+};
+
+const runningTimelineEntry: Entry = {
+  ...completedEntry,
+  id: 12,
+  ended_at: null,
+  effective_end: completedEntry.started_at,
 };
 
 afterEach(() => {
@@ -273,6 +296,72 @@ describe("day view details", () => {
     );
     await waitFor(() => expect(screen.queryByTestId("toast")).toBeNull());
   });
+
+  it("deletes a duration entry and recreates it via /entries/duration on undo", async () => {
+    vi.mocked(api.del).mockResolvedValue(undefined);
+    vi.mocked(api.post).mockResolvedValue(undefined);
+
+    render(
+      <DayView
+        state={state}
+        day={{ ...day, entries: [durationEntry] }}
+        nowMs={day.start_ms}
+        setDate={() => {}}
+        onChanged={() => {}}
+        onError={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Löschen"));
+
+    await waitFor(() =>
+      expect(api.del).toHaveBeenCalledWith(`/entries/${durationEntry.id}`),
+    );
+    expect(screen.getByTestId("toast")).toHaveTextContent("Eintrag gelöscht");
+
+    fireEvent.click(screen.getByRole("button", { name: "Rückgängig" }));
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith("/entries/duration", {
+        category_id: durationEntry.category_id,
+        date: localDateStr(durationEntry.started_at, "Europe/Berlin"),
+        minutes: durationEntry.minutes,
+        note: durationEntry.note,
+      }),
+    );
+  });
+
+  it("hides the row delete button for a running timeline entry", () => {
+    render(
+      <DayView
+        state={state}
+        day={{ ...day, entries: [runningTimelineEntry] }}
+        nowMs={day.start_ms}
+        setDate={() => {}}
+        onChanged={() => {}}
+        onError={() => {}}
+      />,
+    );
+
+    expect(screen.queryByLabelText("Löschen")).toBeNull();
+  });
+
+  it("keeps the sheet delete button for duration entries", () => {
+    render(
+      <EntrySheet
+        open
+        categories={[category]}
+        initial={{ mode: "edit", entry: durationEntry }}
+        timezone="Europe/Berlin"
+        onClose={() => {}}
+        onSaved={() => {}}
+        onDelete={() => {}}
+        onError={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Löschen" })).toBeInTheDocument();
+  });
 });
 
 describe("timeline drag", () => {
@@ -330,6 +419,7 @@ describe("timeline drag", () => {
     fireEvent.pointerDown(block, { clientY: 100 });
     fireEvent.pointerMove(window, { clientY: 156 });
     fireEvent.pointerCancel(window);
+    fireEvent.pointerUp(window);
 
     expect(onPatch).not.toHaveBeenCalled();
 
