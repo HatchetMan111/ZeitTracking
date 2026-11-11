@@ -45,9 +45,35 @@ Zusätzlich prüfen, dass die Daten erhalten sind (Einträge von vor dem Reboot 
 pct exec <CTID> -- timeblocks-update
 ```
 
-Das Skript führt `git pull --ff-only`, `pip install -r requirements.txt` (nur bei Änderungen),
-`systemctl restart timeblocks` und einen Health-Check aus. Bei Fehlern bleibt der Dienst
-im letzten funktionierenden Zustand, das Log zeigt den fehlgeschlagenen Schritt.
+Das Skript führt `git fetch --depth 1 origin main`, `git reset --hard FETCH_HEAD`,
+`pip install -r requirements.txt` (nur bei venv-Installationen), `systemctl restart timeblocks`
+und einen Health-Check aus. Bei Fehlern bleibt der Dienst im letzten funktionierenden Zustand,
+das Log zeigt den fehlgeschlagenen Schritt.
+
+Das Frontend wird als committeter React-Build aus `app/static` ausgeliefert. Im Container
+werden dafür **kein Node und kein npm** benötigt; ein `npm run build` ist nur für
+Entwicklungs-Checkouts nötig.
+
+## 3a. Container umbenennen
+
+Der Default-Hostname ist `zeiterfassung`. Ein erneuter Lauf mit derselben Container-ID
+benennt eine bestehende `timeblocks`-CT automatisch um:
+
+```bash
+bash install/timeblocks.sh --ctid 109
+```
+
+Das Skript erkennt den vorhandenen CT mit Hostname `timeblocks`, setzt den Hostnamen auf
+`zeiterfassung` (der CT wird bei Bedarf kurz gestoppt) und führt danach den normalen
+Update-Modus aus. Die Datenbank bleibt unverändert.
+
+Ein eigenes `--hostname NAME` ist geschützt: Ohne dieses Flag bricht das Skript bei einem
+abweichenden, selbst gesetzten Hostnamen mit einem Hinweis ab, statt ihn zu überschreiben.
+Um den Custom-Namen beizubehalten, denselben Namen erneut übergeben:
+
+```bash
+bash install/timeblocks.sh --ctid 109 --hostname mein-name
+```
 
 ## 4. Backup und Restore
 

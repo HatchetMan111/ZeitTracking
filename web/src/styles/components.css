@@ -14,7 +14,7 @@
 .sidebar nav button[aria-current="page"], .bottom-nav button[aria-current="page"] {
   background: var(--panel); border-color: var(--line); color: var(--text);
 }
-.content { width: 100%; max-width: 1180px; margin: 0 auto; padding: 26px 26px 60px; }
+.content { width: 100%; min-width: 0; max-width: 1180px; margin: 0 auto; padding: 26px 26px 60px; }
 .bottom-nav { display: none; }
 .center { padding: 48px 20px; text-align: center; color: var(--muted); }
 .error-banner {
@@ -184,7 +184,7 @@
 .category-row input[type="color"] { width: 38px; padding: 2px; }
 .category-row button { border: 1px solid var(--line); background: transparent; border-radius: 8px; padding: 7px 10px; color: var(--muted); }
 .category-new { display: flex; gap: 8px; margin: 14px 0 24px; }
-.category-new input { flex: 1; border: 1px solid var(--line); background: var(--panel-2); border-radius: 8px; padding: 8px 10px; color: var(--text); }
+.category-new input { flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--panel-2); border-radius: 8px; padding: 8px 10px; color: var(--text); }
 .category-new input[type="color"] { flex: 0 0 44px; padding: 2px; }
 .category-new button { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 8px 12px; color: var(--text); }
 .empty { padding: 28px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: var(--radius); display: grid; gap: 12px; justify-items: center; }
@@ -198,6 +198,7 @@
   .donut { grid-template-columns: 1fr; justify-items: center; }
   .donut svg, .donut-center { grid-column: 1; grid-row: 1; }
   .legend { grid-column: 1; grid-row: 2; width: 100%; }
+  .dashboard-grid { grid-template-columns: 1fr; }
   .category-row { grid-template-columns: auto 1fr; }
   .category-row label { grid-column: 1 / -1; }
 }

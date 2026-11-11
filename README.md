@@ -1,7 +1,7 @@
 # Timeblocks
 
 Lokale Zeiterfassung für dein Heimnetz – als Proxmox-LXC in wenigen Minuten installiert.
-Timer-Chips, Tages-Timeline und Berichte für den schnellen Alltag –
+Timer-Chips, Tages-Timeline und Dashboard für den schnellen Alltag –
 vollständig eigenständig entwickelt, ohne externe Dienste oder Fremd-Assets.
 
 ![Timeblocks Tagesansicht](docs/screenshot.png)
@@ -11,13 +11,17 @@ vollständig eigenständig entwickelt, ohne externe Dienste oder Fremd-Assets.
 - **Timer-Chips**: mehrere Kategorien, pro Kategorie ein Timer, ein Tap startet/stoppt.
 - **Timeline**: Tag von oben nach unten, Blöcke ziehen und an den Rändern ziehen (5-Minuten-Raster),
   Lücken antippen für einen Nachtrag, Löschen mit Undo.
+- **Detail pro Eintrag**: Freitextfeld mit kategorieabhängigem Platzhalter; erscheint in der
+  Tagesliste und als Spalte `Detail` im CSV-Export.
 - **Nachträge**: Start/Ende frei eintragen, auch über Mitternacht, mit Warnung bei Überschneidung.
-- **Berichte**: Zeitraum (7/30/90 Tage, eigener Bereich), Summen pro Kategorie,
-  Balken pro Tag, Tagesliste mit Einträgen, CSV-Export.
-- **Einstellungen**: Kategorien anlegen, umbenennen, Farbe ändern, archivieren;
-  Arbeitszeitbeginn pro Tag (z. B. 04:00), Woche-Start, Zeitzone, Theme, Export/Import.
+- **Dashboard**: Woche, Monat, Jahr oder eigener Bereich mit KPIs (Heute/Woche/Monat/Gesamt),
+  Kategorie-Donut, Top-Kategorien, Heatmap, Trend, Tages-Tabelle und CSV-Export.
+- **Einstellungen**: Kategorien anlegen, umbenennen, Farbe ändern, archivieren, Detail-Label
+  je Kategorie; Arbeitszeitbeginn pro Tag (z. B. 04:00), Woche-Start, Zeitzone, Theme,
+  Export/Import.
 - **PWA**: auf dem Homescreen installierbar, offlinefähige Hülle, keine externen Ressourcen.
 - **Datenschutz**: SQLite-Datei auf deinem Server, kein Cloud-Konto, keine Telemetrie.
+- **Erststart**: Seed-Kategorie `Filme` mit dem Detail-Platzhalter „Welcher Film?“.
 
 ## Schnellstart (Proxmox VE 8/9)
 
@@ -29,7 +33,8 @@ bash -c "$(wget -qLO - https://raw.githubusercontent.com/HatchetMan111/ZeitTrack
 
 Das Skript legt einen unprivilegierten Debian-13-LXC an (Fallback 12), installiert
 Python/Flask/gunicorn, richtet den systemd-Service ein und gibt am Ende URL und Zugangsdaten aus.
-Standard: 2 vCPU, 1024 MB RAM, 8 GB Disk, DHCP, Port **8080**, Start beim Booten.
+Standard: Hostname `zeiterfassung`, 2 vCPU, 1024 MB RAM, 8 GB Disk, DHCP, Port **8080**,
+Start beim Booten.
 
 ### Optionen
 
@@ -40,7 +45,7 @@ bash timeblocks.sh --help
 | Option | Bedeutung |
 | --- | --- |
 | `--ctid ID` | Container-ID (Default: nächste freie) |
-| `--hostname NAME` | Hostname (Default `timeblocks`) |
+| `--hostname NAME` | Hostname (Default `zeiterfassung`) |
 | `--cores N` / `--memory MB` / `--disk GB` | Ressourcen (2 / 1024 / 8) |
 | `--storage NAME` | RootFS-Storage (Auto-Erkennung, bevorzugt `local-lvm`) |
 | `--template-store N` | Storage für das LXC-Template (Default `local`) |
@@ -53,6 +58,11 @@ bash timeblocks.sh --help
 | `--uninstall` | Container stoppen und löschen (braucht `--ctid`) |
 | `--yes` | Rückfragen automatisch bestätigen |
 | `--debug` | `bash -x` und vollständige Fehlerkette im Log |
+
+Bestehende Installationen mit Hostname `timeblocks` werden beim erneuten Lauf mit derselben
+CT-ID auf `zeiterfassung` umbenannt, z. B. `bash timeblocks.sh --ctid 109`. Ein eigenes
+`--hostname` wird nicht überschrieben: Ohne explizites `--hostname` bricht das Skript bei
+einem abweichenden Custom-Namen mit Hinweis ab.
 
 Beispiel mit fester IP und Login (Skript herunterladen, dann mit Optionen starten):
 
@@ -111,15 +121,31 @@ Der Container wird gestoppt und zerstört; die Datenbank liegt ausschließlich d
 
 ## Lokale Entwicklung
 
+Backend (Flask auf Port 8100):
+
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
-TIMEBLOCKS_DATA_DIR=/tmp/timeblocks-dev python3 -m app.app
+TIMEBLOCKS_DATA_DIR=/tmp/timeblocks-dev PORT=8100 python3 -m app.app
 python3 -m pytest -q
 ```
 
-Testserver: `http://127.0.0.1:5000` (Flask-Dev-Server).
-Für einen produktionsnahen Lauf:
+Frontend (Vite, proxyt `/api` nach `127.0.0.1:8100`):
+
+```bash
+cd web
+npm ci
+npm run dev        # http://127.0.0.1:5173
+npm run test
+npm run typecheck
+npm run build      # schreibt den Produktions-Build nach app/static
+```
+
+Vor einem Commit mit Frontend-Änderungen immer `npm run build` ausführen, damit
+`app/static` mit dem Quellstand übereinstimmt. Im LXC läuft kein Node/npm; der
+committete Build wird per `timeblocks-update` mit ausgeliefert.
+
+Für einen produktionsnahen Backend-Lauf:
 
 ```bash
 TIMEBLOCKS_DATA_DIR=/tmp/timeblocks-dev gunicorn --chdir app --bind 127.0.0.1:8100 app:app
@@ -138,7 +164,8 @@ TIMEBLOCKS_DATA_DIR=/tmp/timeblocks-dev gunicorn --chdir app --bind 127.0.0.1:81
 `GET /api/health`, `GET /api/state`, `GET /api/day?date=YYYY-MM-DD`,
 `POST /api/timers/<category>/start`, `POST /api/timers/stop`,
 `POST /api/entries`, `PATCH /api/entries/<id>`, `DELETE /api/entries/<id>`,
-`GET /api/stats?from=…&to=…`, `GET /api/export.csv?from=…&to=…`.
+`GET /api/summary`, `GET /api/stats?from=…&to=…`,
+`GET /api/export.csv?from=…&to=…`.
 
 ## Lizenz
 
