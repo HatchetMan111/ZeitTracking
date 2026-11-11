@@ -41,7 +41,7 @@ shellcheck -S warning install/timeblocks.sh        # keine Warnungen
 ## Laufzeit-Test mit gunicorn (identisch zur systemd-Unit)
 
 ```bash
-TIMEBLOCKS_DATA_DIR=/tmp/tb-e2e gunicorn --workers 2 --worker-class gthread \
+TIMEBLOCKS_DATA_DIR=/tmp/tb-e2e gunicorn --chdir app --workers 2 --worker-class gthread \
   --threads 4 --bind 127.0.0.1:8102 app:app
 ```
 
@@ -51,27 +51,49 @@ TIMEBLOCKS_DATA_DIR=/tmp/tb-e2e gunicorn --workers 2 --worker-class gthread \
 
 ## Browser-E2E (Playwright, Chromium)
 
-22 Prüfungen, alle grün. Lauf gegen eine frische Instanz mit temporärem Datenverzeichnis:
+Einmalig Chromium installieren:
+
+```bash
+pip install -r requirements-dev.txt
+python3 -m playwright install chromium
+```
+
+25 Prüfungen, alle grün. Lauf gegen eine frische Instanz mit temporärem Datenverzeichnis
+und Bereitschaftsprüfung über `/api/health`:
 
 ```bash
 tmpdir="$(mktemp -d)"
 trap 'kill "$server" 2>/dev/null || true; wait "$server" 2>/dev/null || true; rm -rf "$tmpdir"' EXIT
 TIMEBLOCKS_DATA_DIR="$tmpdir" PORT=8100 python3 app/app.py >/tmp/timeblocks-e2e.log 2>&1 &
 server=$!
+for _ in $(seq 1 100); do
+  curl -fsS http://127.0.0.1:8100/api/health >/dev/null 2>&1 && break
+  sleep 0.1
+done
 python3 tests/e2e_ui.py
-# E2E OK (22 Checks)
+# E2E OK (25 Checks)
 ```
 
 Geprüft:
 
-- Tag: Tagessumme sichtbar; Timer-Chip startet, läuft ~1,2 s, stoppt und erzeugt Eintrag.
-- Dauer-Nachtrag über das Sheet speichert und erzeugt einen zweiten Eintrag.
-- Dashboard: Donut, Gesamt-KPI, Monatszeitraum, Trend, Heatmap und Tages-Tabelle.
-- Einstellungen: eindeutiges Detail-Label setzen, per Tab blurren, PATCH-Antwort
-  abwarten und gespeicherten Wert prüfen.
+- Tag: Tagessumme sichtbar; Timer-Chip startet, läuft ~1,2 s, stoppt und erzeugt
+  genau einen zusätzlichen Eintrag (unabhängig von vorhandenen Einträgen).
+- Dauer-Nachtrag über das Sheet speichert und erzeugt einen weiteren Eintrag.
+- Dashboard: Donut, Gesamt-KPI; Monatswechsel wartet auf die `/api/stats`-Antwort,
+  danach Trend, Heatmap und Tages-Tabelle.
+- Einstellungen: eindeutiges Detail-Label setzen, PATCH-Antwort abwarten, Seite
+  neu laden und den Wert über dieselbe `data-testid` erneut prüfen.
+- Offline-Hülle: nach Online-Reload kontrolliert der Service Worker die Seite;
+  offline neu geladen bleiben App-Shell und Navigation sichtbar.
 - Kein horizontaler Überlauf bei 320/390/768/1280 px in Tag, Dashboard und
   Einstellungen (Navigation über Sidebar bzw. Bottom-Nav je nach Breite).
 - Keine JavaScript-Fehler (`pageerror`).
+
+Screenshot der Tagesansicht neu erzeugen:
+
+```bash
+python3 tests/screenshot_ui.py   # schreibt docs/screenshot.png
+```
 
 Der E2E-Lauf hat drei mobile Layout-Probleme aufgedeckt und behoben:
 `min-width: 0` für `.content`, einspaltiges `.dashboard-grid` unter 760 px und

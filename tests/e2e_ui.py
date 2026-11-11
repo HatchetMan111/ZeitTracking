@@ -20,8 +20,9 @@ def check(condition, message):
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch()
+        context = browser.new_context(viewport={"width": 390, "height": 844})
         try:
-            page = browser.new_page(viewport={"width": 390, "height": 844})
+            page = context.new_page()
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(BASE, wait_until="domcontentloaded")
 
@@ -39,6 +40,9 @@ def main():
                     page.wait_for_selector('[data-testid="donut"]')
                 else:
                     page.wait_for_selector('[data-testid="settings-day-start"]')
+
+            def entry_count():
+                return page.locator('[data-testid^="entry-"]').count()
 
             def wait_entries(count):
                 page.wait_for_function(
@@ -61,27 +65,29 @@ def main():
             wait_tab_ready("day")
             check(page.locator('[data-testid="day-total"]').is_visible(), "Tagessumme sichtbar")
 
+            before = entry_count()
             page.locator('[data-testid^="timer-chip-"]').first.click()
             page.wait_for_timeout(1200)
             page.locator('[data-testid^="timer-chip-"]').first.click()
-            wait_entries(1)
-            check(page.locator('[data-testid^="entry-"]').count() >= 1, "Timer erzeugt Eintrag")
+            wait_entries(before + 1)
+            check(entry_count() == before + 1, "Timer erzeugt genau einen Eintrag")
 
             page.locator('[data-testid="add-duration"]').click()
             page.wait_for_selector('[data-testid="sheet-detail"]')
             page.locator('[data-testid="sheet-save"]').click()
             page.wait_for_selector('[data-testid="sheet-save"]', state="detached")
-            wait_entries(2)
-            check(
-                page.locator('[data-testid^="entry-"]').count() >= 2,
-                "Dauer-Eintrag erzeugt Eintrag",
-            )
+            wait_entries(before + 2)
+            check(entry_count() == before + 2, "Dauer-Eintrag erzeugt genau einen Eintrag")
 
             click_tab("dashboard")
             page.wait_for_selector('[data-testid="donut"]')
             check(page.locator('[data-testid="kpi-all"]').is_visible(), "Gesamt-KPI sichtbar")
-            page.locator('[data-testid="period-month"]').click()
-            page.wait_for_selector('[data-testid="donut"]')
+            with page.expect_response(
+                lambda response: "/api/stats" in response.url and "from=" in response.url,
+                timeout=15000,
+            ) as month_response:
+                page.locator('[data-testid="period-month"]').click()
+            check(month_response.value.ok, "Monats-Statistik erfolgreich geladen")
             check(page.locator('[data-testid="trend"]').is_visible(), "Trend sichtbar")
             check(page.locator('[data-testid="heatmap"]').is_visible(), "Heatmap sichtbar")
             check(page.locator('[data-testid="day-table"]').is_visible(), "Tagestabelle sichtbar")
@@ -89,6 +95,7 @@ def main():
             click_tab("settings")
             page.wait_for_selector('[data-testid="settings-day-start"]')
             label = page.locator('[data-testid^="detail-label-"]').last
+            testid = label.get_attribute("data-testid")
             unique = f"E2E Detail {int(time.time())}"
             with page.expect_response(
                 lambda response: response.request.method == "PATCH"
@@ -98,15 +105,38 @@ def main():
                 label.fill(unique)
                 page.keyboard.press("Tab")
             check(response_info.value.ok, "Detail-Label PATCH erfolgreich")
-            page.wait_for_timeout(400)
-            check(label.input_value() == unique, "Detail-Label gespeichert")
+            page.reload(wait_until="domcontentloaded")
+            wait_tab_ready("day")
+            click_tab("settings")
+            wait_tab_ready("settings")
+            persisted = page.locator(f'[data-testid="{testid}"]')
+            check(persisted.input_value() == unique, "Detail-Label nach Reload gespeichert")
 
             for width in (320, 390, 768, 1280):
                 for tab in ("day", "dashboard", "settings"):
                     no_overflow(width, tab)
 
+            page.set_viewport_size({"width": 1280, "height": 800})
+            page.reload(wait_until="domcontentloaded")
+            page.wait_for_function(
+                "() => navigator.serviceWorker && navigator.serviceWorker.controller !== null",
+                timeout=15000,
+            )
+            check(True, "Service Worker kontrolliert die Seite")
+            context.set_offline(True)
+            try:
+                page.reload(wait_until="domcontentloaded")
+                page.wait_for_selector('[data-testid="nav-day"]', timeout=15000)
+                check(
+                    page.locator('[data-testid="nav-day"]').is_visible(),
+                    "Offline-Hülle mit Navigation sichtbar",
+                )
+            finally:
+                context.set_offline(False)
+
             check(not errors, "keine JavaScript-Fehler: " + "; ".join(errors))
         finally:
+            context.close()
             browser.close()
 
 

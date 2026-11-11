@@ -47,8 +47,11 @@ pct exec <CTID> -- timeblocks-update
 
 Das Skript führt `git fetch --depth 1 origin main`, `git reset --hard FETCH_HEAD`,
 `pip install -r requirements.txt` (nur bei venv-Installationen), `systemctl restart timeblocks`
-und einen Health-Check aus. Bei Fehlern bleibt der Dienst im letzten funktionierenden Zustand,
-das Log zeigt den fehlgeschlagenen Schritt.
+und einen Health-Check aus. Es gibt **keinen automatischen Rollback**: Der Checkout wird
+zuvor zurückgesetzt und der Dienst neu gestartet. Schlägt ein Schritt fehl, bricht das Skript
+ab und das Log zeigt die fehlgeschlagene Stelle; je nach Fehler kann der Dienst gestoppt sein
+oder auf dem neuen Stand laufen. Dann den Fehler beheben und, falls nötig, die Datenbank aus
+dem Backup wiederherstellen (Abschnitt 4).
 
 Das Frontend wird als committeter React-Build aus `app/static` ausgeliefert. Im Container
 werden dafür **kein Node und kein npm** benötigt; ein `npm run build` ist nur für

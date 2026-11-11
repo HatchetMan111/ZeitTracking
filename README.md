@@ -145,6 +145,19 @@ Vor einem Commit mit Frontend-Änderungen immer `npm run build` ausführen, dami
 `app/static` mit dem Quellstand übereinstimmt. Im LXC läuft kein Node/npm; der
 committete Build wird per `timeblocks-update` mit ausgeliefert.
 
+Browser-E2E und Screenshot (Playwright/Chromium):
+
+```bash
+pip install -r requirements-dev.txt
+python3 -m playwright install chromium
+python3 tests/e2e_ui.py         # gegen eine laufende Instanz auf 127.0.0.1:8100
+python3 tests/screenshot_ui.py  # temporäre Instanz, schreibt docs/screenshot.png
+```
+
+Der Screenshot-Lauf richtet sich eine temporäre Datenbank ein, startet Flask auf einem
+freien Port und nimmt die Tagesansicht bei 1280×800 auf. Der E2E-Launcher mit
+Bereitschaftsprüfung steht in [docs/verification.md](docs/verification.md).
+
 Für einen produktionsnahen Backend-Lauf:
 
 ```bash

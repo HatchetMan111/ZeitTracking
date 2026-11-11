@@ -69,7 +69,18 @@ export default function App() {
 
   if (data.status === "loading") return <p className="center">Laden …</p>;
   if (data.status === "auth") return <LoginView onSuccess={() => void data.reload()} />;
-  if (!data.state || !data.day) return <p className="center">{data.error || "Fehler"}</p>;
+  if (!data.state || !data.day) {
+    if (data.status === "error") {
+      return (
+        <AppShell active={tab} onNavigate={setTab} total="" onLogout={() => void logout()}>
+          <p className="center" role="alert">
+            {data.error || "Laden fehlgeschlagen"}
+          </p>
+        </AppShell>
+      );
+    }
+    return <p className="center">Laden …</p>;
+  }
 
   const ready =
     dashboardData && range && dashboardData.from === range.from && dashboardData.to === range.to
