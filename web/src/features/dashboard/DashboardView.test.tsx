@@ -64,7 +64,8 @@ describe("dashboard", () => {
     expect(screen.getByText("40.0%")).toBeInTheDocument();
   });
   it("lays out donut arcs cumulatively with negative dash offsets", () => {
-    const { container } = render(<CategoryDonut rows={stats.rows} total={100} />);
+    const { container } = render(<CategoryDonut rows={stats.rows} total={130} />);
+    expect(screen.getByText("1h 40m")).toBeInTheDocument();
     const arcs = [...container.querySelectorAll("circle[stroke-dasharray]")];
     expect(arcs).toHaveLength(2);
     const circumference = 2 * Math.PI * 99;
