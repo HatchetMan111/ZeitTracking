@@ -122,7 +122,7 @@ export function Timeline({
     <div className="timeline" style={{ height: 24 * PX_PER_HOUR }} ref={trackRef}>
       {Array.from({ length: 24 }, (_, hour) => (
         <div key={hour} className="hour" style={{ top: hour * PX_PER_HOUR }}>
-          <span>{String(hour).padStart(2, "0")}:00</span>
+          <span>{fmtClock(day.start_ms + hour * 3600000, timezone)}</span>
         </div>
       ))}
       <div

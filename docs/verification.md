@@ -23,7 +23,7 @@ JSON-404 für Static- und API-Misses).
 ```bash
 cd web
 npm ci
-npm run test        # 88 passed (15 Dateien)
+npm run test        # 91 passed (16 Dateien)
 npm run typecheck
 npm run build       # schreibt app/static
 ```
@@ -94,6 +94,9 @@ Screenshot der Tagesansicht neu erzeugen:
 ```bash
 python3 tests/screenshot_ui.py   # schreibt docs/screenshot.png
 ```
+
+Der Lauf setzt `day_start_hour=8`, seedet vier Einträge und nimmt die Tagesansicht
+bei 1280×900 ohne leeres 00–08-Band auf.
 
 Der E2E-Lauf hat drei mobile Layout-Probleme aufgedeckt und behoben:
 `min-width: 0` für `.content`, einspaltiges `.dashboard-grid` unter 760 px und

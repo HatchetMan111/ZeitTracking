@@ -33,15 +33,14 @@ def free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def api(base: str, path: str, payload: dict | None = None):
+def api(base: str, path: str, payload: dict | None = None, method: str | None = None):
     data = None
     headers = {}
-    method = "GET"
+    verb = method or ("POST" if payload is not None else "GET")
     if payload is not None:
         data = json.dumps(payload).encode()
         headers["Content-Type"] = "application/json"
-        method = "POST"
-    request = urllib.request.Request(base + path, data=data, headers=headers, method=method)
+    request = urllib.request.Request(base + path, data=data, headers=headers, method=verb)
     with urllib.request.urlopen(request, timeout=10) as response:
         return json.load(response)
 
@@ -60,8 +59,17 @@ def wait_ready(base: str, timeout: float = 20.0) -> None:
 def seed(base: str) -> None:
     state = api(base, "/api/state")
     categories = {category["name"]: category["id"] for category in state["categories"]}
+    missing = sorted({name for name, *_ in PLAN if name not in categories})
+    if missing:
+        available = ", ".join(sorted(categories)) or "(keine)"
+        raise RuntimeError(
+            f"Seed-Kategorien fehlen: {', '.join(missing)}. Verfügbar: {available}"
+        )
     timezone = ZoneInfo(state["timezone"])
-    today = datetime.now(timezone).date()
+    now = datetime.fromtimestamp(state["now"] / 1000, timezone)
+    if now.hour < int(state["day_start_hour"]):
+        now -= timedelta(days=1)
+    today = now.date()
     for name, note, hour, minute, duration in PLAN:
         started = datetime(today.year, today.month, today.day, hour, minute, tzinfo=timezone)
         ended = started + timedelta(minutes=duration)
@@ -93,11 +101,12 @@ def main() -> None:
         )
         try:
             wait_ready(base)
+            api(base, "/api/settings", {"day_start_hour": 8}, method="PUT")
             seed(base)
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch()
                 try:
-                    context = browser.new_context(viewport={"width": 1280, "height": 800})
+                    context = browser.new_context(viewport={"width": 1280, "height": 900})
                     page = context.new_page()
                     page.goto(base, wait_until="networkidle")
                     page.wait_for_selector('[data-testid="nav-day"]')
@@ -105,7 +114,7 @@ def main() -> None:
                         "(n) => document.querySelectorAll('[data-testid^=\"entry-\"]').length >= n",
                         arg=len(PLAN),
                     )
-                    page.screenshot(path=str(OUTPUT), full_page=True)
+                    page.screenshot(path=str(OUTPUT), full_page=False)
                     context.close()
                 finally:
                     browser.close()

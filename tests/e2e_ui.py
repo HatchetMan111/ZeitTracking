@@ -2,12 +2,23 @@
 import os
 import sys
 import time
+from datetime import datetime, timedelta
+from urllib.parse import parse_qs, urlparse
+from zoneinfo import ZoneInfo
 
 from playwright.sync_api import sync_playwright
 
 BASE = os.environ.get("TIMEBLOCKS_URL", "http://127.0.0.1:8100")
 checks = 0
 errors = []
+
+
+def month_start(page):
+    state = page.evaluate("async () => (await fetch('/api/state')).json()")
+    now = datetime.fromtimestamp(state["now"] / 1000, ZoneInfo(state["timezone"]))
+    if now.hour < int(state["day_start_hour"]):
+        now -= timedelta(days=1)
+    return f"{now.year:04d}-{now.month:02d}-01"
 
 
 def check(condition, message):
@@ -82,12 +93,18 @@ def main():
             click_tab("dashboard")
             page.wait_for_selector('[data-testid="donut"]')
             check(page.locator('[data-testid="kpi-all"]').is_visible(), "Gesamt-KPI sichtbar")
-            with page.expect_response(
-                lambda response: "/api/stats" in response.url and "from=" in response.url,
-                timeout=15000,
-            ) as month_response:
+            expected_month_from = month_start(page)
+
+            def is_month_stats(response):
+                if "/api/stats" not in response.url:
+                    return False
+                params = parse_qs(urlparse(response.url).query)
+                return params.get("from") == [expected_month_from]
+
+            with page.expect_response(is_month_stats, timeout=15000) as month_response:
                 page.locator('[data-testid="period-month"]').click()
             check(month_response.value.ok, "Monats-Statistik erfolgreich geladen")
+            page.wait_for_selector('[data-testid="trend"]', timeout=15000)
             check(page.locator('[data-testid="trend"]').is_visible(), "Trend sichtbar")
             check(page.locator('[data-testid="heatmap"]').is_visible(), "Heatmap sichtbar")
             check(page.locator('[data-testid="day-table"]').is_visible(), "Tagestabelle sichtbar")
@@ -122,7 +139,12 @@ def main():
                 "() => navigator.serviceWorker && navigator.serviceWorker.controller !== null",
                 timeout=15000,
             )
-            check(True, "Service Worker kontrolliert die Seite")
+            check(
+                page.evaluate(
+                    "() => Boolean(navigator.serviceWorker && navigator.serviceWorker.controller)"
+                ),
+                "Service Worker kontrolliert die Seite",
+            )
             context.set_offline(True)
             try:
                 page.reload(wait_until="domcontentloaded")

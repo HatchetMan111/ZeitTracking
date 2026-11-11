@@ -59,6 +59,34 @@ describe("useAppData", () => {
     expect(dayCalls[0]).toBe("/api/day");
   });
 
+  it("keeps the API error message when /state returns 500", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(jsonResponse({ error: "Interner Fehler" }, 500))),
+    );
+
+    const { result } = renderHook(() => useAppData());
+
+    await waitFor(() => expect(result.current.status).toBe("error"));
+
+    expect(result.current.error).toBe("Interner Fehler");
+    expect(result.current.state).toBeNull();
+  });
+
+  it("maps a network failure to the German unreachable message", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))),
+    );
+
+    const { result } = renderHook(() => useAppData());
+
+    await waitFor(() => expect(result.current.status).toBe("error"));
+
+    expect(result.current.error).toBe("Server nicht erreichbar");
+    expect(result.current.state).toBeNull();
+  });
+
   it("reports auth status when /state returns 401", async () => {
     const fetchMock = vi.fn(() =>
       Promise.resolve(jsonResponse({ error: "Nicht angemeldet" }, 401)),

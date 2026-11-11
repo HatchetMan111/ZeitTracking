@@ -39,7 +39,7 @@ export function useAppData() {
         setStatus("auth");
         return;
       }
-      setError(err instanceof Error ? err.message : "Laden fehlgeschlagen");
+      setError(err instanceof ApiError ? err.message : "Server nicht erreichbar");
       setStatus("error");
     }
   }, [date]);
