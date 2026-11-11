@@ -44,7 +44,8 @@ CORES="${CORES:-$DEFAULT_CORES}"
 RAM="${RAM:-$DEFAULT_RAM}"
 DISK="${DISK:-$DEFAULT_DISK}"
 SWAP="$DEFAULT_SWAP"
-HOSTNAME_ARG="${HOSTNAME_ARG:-$APP}"
+HOSTNAME_EXPLICIT="0"
+HOSTNAME_ARG="${HOSTNAME_ARG:-zeiterfassung}"
 STORAGE_ARG=""
 TEMPLATE_STORE="${TEMPLATE_STORE:-}"
 BRIDGE="${BRIDGE:-$DEFAULT_BRIDGE}"
@@ -145,7 +146,7 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --ctid|--id) CT_ID="$2"; shift 2;;
-    --hostname) HOSTNAME_ARG="$2"; shift 2;;
+    --hostname) HOSTNAME_ARG="$2"; HOSTNAME_EXPLICIT="1"; shift 2;;
     --cores) CORES="$2"; shift 2;;
     --memory|--ram) RAM="$2"; shift 2;;
     --disk) DISK="$2"; shift 2;;
@@ -265,9 +266,20 @@ msg_ok "Template bereit: ${TEMPLATE_STORE}:vztmpl/${TEMPLATE}"
 if pct status "$CT_ID" >/dev/null 2>&1; then
   EXISTING_HOSTNAME="$(pct config "$CT_ID" | awk -F': ' '/^hostname:/ {print $2}')"
   if [[ "$EXISTING_HOSTNAME" != "$HOSTNAME_ARG" ]]; then
-    msg_error "CT ${CT_ID} existiert bereits mit Hostname '${EXISTING_HOSTNAME}'."
-    msg_error "Zum Aktualisieren denselben Hostnamen verwenden oder eine andere --ctid wählen."
-    exit 1
+    if [[ "$EXISTING_HOSTNAME" == "timeblocks" && "$HOSTNAME_EXPLICIT" == "0" ]]; then
+      msg_info "Benenne CT ${CT_ID} von 'timeblocks' in '${HOSTNAME_ARG}' um ..."
+      if ! pct set "$CT_ID" --hostname "$HOSTNAME_ARG" 2>/dev/null; then
+        msg_warn "Hostname-Änderung im Betrieb abgelehnt – CT wird kurz gestoppt."
+        pct stop "$CT_ID"
+        pct set "$CT_ID" --hostname "$HOSTNAME_ARG"
+        pct start "$CT_ID" || true
+      fi
+      msg_ok "Hostname in PVE-Config: ${HOSTNAME_ARG}"
+    else
+      msg_error "CT ${CT_ID} existiert bereits mit Hostname '${EXISTING_HOSTNAME}'."
+      msg_error "Zum Aktualisieren denselben Hostnamen verwenden oder '--hostname ${EXISTING_HOSTNAME}' setzen."
+      exit 1
+    fi
   fi
   msg_warn "CT ${CT_ID} existiert – Update-Modus (Code wird aktualisiert)."
 else
@@ -337,6 +349,7 @@ APP_USER="timeblocks"
 PASSWORD=""
 RAW_BASE=""
 HOST_TZ=""
+HOSTNAME_TARGET=""
 LOG_FILE="/var/log/timeblocks-bootstrap.log"
 
 while [[ $# -gt 0 ]]; do
@@ -352,12 +365,23 @@ while [[ $# -gt 0 ]]; do
       shift 2;;
     --raw-base) RAW_BASE="$2"; shift 2;;
     --timezone) HOST_TZ="$2"; shift 2;;
+    --hostname) HOSTNAME_TARGET="$2"; shift 2;;
     *) echo "[ERROR] Unbekanntes Bootstrap-Argument: $1" >&2; exit 1;;
   esac
 done
 
 touch "$LOG_FILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
+
+if [[ -n "$HOSTNAME_TARGET" ]]; then
+  hostnamectl set-hostname "$HOSTNAME_TARGET" 2>/dev/null \
+    || printf '%s\n' "$HOSTNAME_TARGET" > /etc/hostname
+  if grep -q '^127\.0\.1\.1[[:space:]]' /etc/hosts; then
+    sed -i "s|^127\.0\.1\.1.*|127.0.1.1\t${HOSTNAME_TARGET}|" /etc/hosts
+  else
+    printf '127.0.1.1\t%s\n' "$HOSTNAME_TARGET" >> /etc/hosts
+  fi
+fi
 
 C_RESET=$'\e[0m' C_RED=$'\e[31m' C_GREEN=$'\e[32m' C_BLUE=$'\e[34m' C_YELLOW=$'\e[33m'
 msg_info()  { echo -e "${C_BLUE}[INFO]${C_RESET}  $*"; }
@@ -606,6 +630,7 @@ fi
 
 msg_info "Installiere ${APP_NAME} im Container (kann einige Minuten dauern) ..."
 BOOT_ARGS=(
+  --hostname "$HOSTNAME_ARG"
   --repo "$INSTALLER_REPO"
   --branch "$BRANCH"
   --port "$APP_PORT"
