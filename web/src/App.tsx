@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api } from "./api/client";
+import { api, errorMessage } from "./api/client";
 import AppShell, { type Tab } from "./components/AppShell";
 import { LoginView } from "./features/auth/LoginView";
 import { DashboardView } from "./features/dashboard/DashboardView";
@@ -47,9 +47,13 @@ export default function App() {
   }, [data.status, clearDashboard]);
 
   const logout = async () => {
-    clearDashboard();
-    await api.post("/logout", {});
-    await data.reload();
+    try {
+      await api.post("/logout", {});
+      clearDashboard();
+      await data.reload();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
   };
 
   const onPeriod = (next: Period, custom?: Range) => {

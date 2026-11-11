@@ -178,8 +178,13 @@ describe("dashboard", () => {
       />,
     );
     expect(screen.getByTestId("export-csv")).toHaveTextContent("CSV exportieren");
-    expect(screen.getByTestId("trend")).toHaveTextContent("11-09");
-    expect(screen.getByTestId("trend")).toHaveTextContent("11-10");
+    const caption = screen.getByTestId("trend").querySelector("figcaption");
+    expect(caption).not.toBeNull();
+    expect([...caption!.querySelectorAll("span")].map((span) => span.textContent)).toEqual([
+      "11-09",
+      "max. 1h 10m",
+      "11-10",
+    ]);
     expect(screen.getByTestId("heatmap")).toBeInTheDocument();
     expect(screen.getByTestId("day-table")).toBeInTheDocument();
     expect(screen.getByText("Dune")).toBeInTheDocument();

@@ -156,4 +156,53 @@ describe("useDashboardData", () => {
     expect(result.current.error).toBe("");
     expect(result.current.loading).toBe(false);
   });
+
+  it("clear during an in-flight request prevents the response from writing", async () => {
+    const pendingSummary = deferred<SummaryPayload>();
+    const pendingStats = deferred<StatsPayload>();
+    const pendingHeat = deferred<StatsPayload>();
+    get.mockImplementation((path: string) => {
+      if (path === "/summary") return pendingSummary.promise;
+      if (path.includes("group_by=day")) return pendingHeat.promise;
+      return pendingStats.promise;
+    });
+    const { result } = renderHook(() => useDashboardData(props));
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(3));
+
+    act(() => result.current.clear());
+
+    pendingSummary.resolve(summary);
+    pendingStats.resolve(categoryStats);
+    pendingHeat.resolve(heatStats);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.data).toBeNull();
+    expect(result.current.loading).toBe(false);
+  });
+
+  it("resets the 401 guard after a successful load", async () => {
+    const onAuth = vi.fn();
+    let mode: "401" | "ok" = "401";
+    get.mockImplementation((path: string) => {
+      if (mode === "401") return Promise.reject(new ApiError("unauthorized", 401));
+      if (path === "/summary") return Promise.resolve(summary);
+      if (path.includes("group_by=day")) return Promise.resolve(heatStats);
+      return Promise.resolve(categoryStats);
+    });
+    const { result, rerender } = renderHook((current) => useDashboardData(current), {
+      initialProps: { ...props, onAuth },
+    });
+
+    await waitFor(() => expect(onAuth).toHaveBeenCalledTimes(1));
+
+    mode = "ok";
+    rerender({ ...props, onAuth, refreshKey: 2 });
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+
+    mode = "401";
+    rerender({ ...props, onAuth, refreshKey: 3 });
+    await waitFor(() => expect(onAuth).toHaveBeenCalledTimes(2));
+  });
 });

@@ -37,6 +37,7 @@ export function useDashboardData({
 
   const clear = useCallback(() => {
     generation.current += 1;
+    authHandled.current = null;
     setData(null);
     setError("");
     setLoading(false);
@@ -69,6 +70,7 @@ export function useDashboardData({
     ])
       .then(([summary, stats, heat]) => {
         if (ignore || generation.current !== current) return;
+        authHandled.current = null;
         setData({ summary, stats, heatmap: heat.days, from: range.from, to: range.to });
         setLoading(false);
       })
