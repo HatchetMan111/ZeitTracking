@@ -4,6 +4,7 @@ import AppShell, { type Tab } from "./components/AppShell";
 import { LoginView } from "./features/auth/LoginView";
 import { DashboardView } from "./features/dashboard/DashboardView";
 import { DayView } from "./features/day/DayView";
+import { SettingsView } from "./features/settings/SettingsView";
 import { useAppData } from "./hooks/useAppData";
 import { useDashboardData } from "./hooks/useDashboardData";
 import { useNow } from "./hooks/useNow";
@@ -112,6 +113,13 @@ export default function App() {
           ) : (
             <p className="center">Dashboard wird geladen …</p>
           )
+        ) : tab === "settings" ? (
+          <SettingsView
+            state={data.state}
+            onChanged={() => void data.reload()}
+            onError={setError}
+            onLogout={() => void logout()}
+          />
         ) : (
           <p className="center">In Arbeit</p>
         )}
