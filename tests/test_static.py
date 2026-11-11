@@ -40,6 +40,13 @@ def test_static_misses_are_json_404(client):
         assert "no-cache" in response.headers["Cache-Control"], path
 
 
+def test_api_misses_are_no_store(client):
+    response = client.get("/api/nope")
+    assert response.status_code == 404
+    assert response.mimetype == "application/json"
+    assert "no-store" in response.headers["Cache-Control"]
+
+
 def test_deep_link_falls_back_to_cached_safe_shell(client):
     response = client.get("/dashboard")
     assert response.status_code == 200

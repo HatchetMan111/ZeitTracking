@@ -54,11 +54,13 @@ def create_app() -> Flask:
 
     @app.errorhandler(404)
     def not_found(_error):
-        if (
-            request.path.startswith("/api/")
-            or request.path == "/static"
-            or request.path.startswith("/static/")
-        ):
+        if request.path.startswith("/api/"):
+            return (
+                jsonify({"error": "Nicht gefunden"}),
+                404,
+                {"Cache-Control": "no-store"},
+            )
+        if request.path == "/static" or request.path.startswith("/static/"):
             return (
                 jsonify({"error": "Nicht gefunden"}),
                 404,
