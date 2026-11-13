@@ -365,6 +365,7 @@ PASSWORD=""
 RAW_BASE=""
 HOST_TZ=""
 HOSTNAME_TARGET=""
+DNS_SERVERS=""
 LOG_FILE="/var/log/timeblocks-bootstrap.log"
 
 while [[ $# -gt 0 ]]; do
@@ -381,6 +382,7 @@ while [[ $# -gt 0 ]]; do
     --raw-base) RAW_BASE="$2"; shift 2;;
     --timezone) HOST_TZ="$2"; shift 2;;
     --hostname) HOSTNAME_TARGET="$2"; shift 2;;
+    --dns-servers) DNS_SERVERS="$2"; shift 2;;
     *) echo "[ERROR] Unbekanntes Bootstrap-Argument: $1" >&2; exit 1;;
   esac
 done
@@ -427,15 +429,53 @@ trap 'catch_error $? "$LINENO" "$BASH_COMMAND"' ERR
 
 export DEBIAN_FRONTEND=noninteractive
 msg_info "Warte auf Netzwerk/DNS im Container ..."
+
+# Readiness wie apt selbst: Namensauflösung + HTTP-Fetch (kein HTTPS – vermeidet
+# False-Negatives durch TLS-/Zeitprobleme im frischen CT).
+net_ready() {
+  getent hosts deb.debian.org >/dev/null 2>&1 \
+    && curl -fsS -m 5 -o /dev/null http://deb.debian.org/ 2>/dev/null
+}
+
 NET_OK="0"
-for _ in $(seq 1 20); do
-  if getent hosts deb.debian.org >/dev/null 2>&1 && curl -fsS -m 5 -o /dev/null https://deb.debian.org/ 2>/dev/null; then
-    NET_OK="1"
-    break
-  fi
+for _ in $(seq 1 30); do
+  if net_ready; then NET_OK="1"; break; fi
   sleep 2
 done
-[[ "$NET_OK" == "1" ]] || msg_warn "Netzwerk scheint noch nicht bereit – versuche apt trotzdem."
+
+# DNS-Reparatur: Wenn der CT selbst nicht auflöst (DHCP ohne DNS, blockierter oder
+# leerer Stub), die Nameserver des Proxmox-Hosts übernehmen – der Host löst ja
+# nachweislich auf, sonst wäre dieses Skript nie heruntergeladen worden. Als letzte
+# Rettung zusätzlich das Gateway eintragen. Original bleibt als Backup liegen.
+if [[ "$NET_OK" != "1" ]]; then
+  cp /etc/resolv.conf /etc/resolv.conf.timeblocks-orig 2>/dev/null || true
+  msg_warn "DNS im CT nicht bereit – schreibe Nameserver des Hosts: ${DNS_SERVERS:-<keine>}"
+  : > /etc/resolv.conf
+  for ns in $DNS_SERVERS; do printf 'nameserver %s\n' "$ns" >> /etc/resolv.conf; done
+  GW="$(ip route 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "via") {print $(i + 1); exit}}')"
+  if [[ -n "$GW" ]] && ! grep -qs "^nameserver ${GW}$" /etc/resolv.conf; then
+    printf 'nameserver %s\n' "$GW" >> /etc/resolv.conf
+  fi
+  for _ in $(seq 1 15); do
+    if net_ready; then NET_OK="1"; break; fi
+    sleep 2
+  done
+  if [[ "$NET_OK" == "1" ]]; then
+    msg_ok "DNS funktioniert nach Nameserver-Übernahme (Original: /etc/resolv.conf.timeblocks-orig)."
+  fi
+fi
+
+if [[ "$NET_OK" != "1" ]]; then
+  msg_error "Netzwerk/DNS im Container nicht nutzbar – Abbruch vor apt."
+  msg_error "/etc/resolv.conf:"
+  sed 's/^/    /' /etc/resolv.conf >&2 || true
+  msg_error "IP-Konfiguration:"
+  ip -br addr 2>/dev/null | sed 's/^/    /' >&2 || true
+  msg_error "Test im CT: getent hosts deb.debian.org && curl -m5 -I http://deb.debian.org"
+  exit 1
+fi
+msg_ok "Netzwerk und DNS im Container bereit."
+
 msg_info "Aktualisiere Paketlisten ..."
 for attempt in 1 2 3; do
   apt-get update -qq && break
@@ -444,8 +484,18 @@ for attempt in 1 2 3; do
 done
 
 msg_info "Installiere Basispakete ..."
-apt-get install -y -qq --no-install-recommends \
-  python3 python3-venv python3-pip git curl ca-certificates sqlite3 tzdata >/dev/null
+APT_OK="0"
+for attempt in 1 2 3; do
+  if apt-get install -y -qq --no-install-recommends \
+    python3 python3-venv python3-pip git curl ca-certificates sqlite3 tzdata >/dev/null; then
+    APT_OK="1"
+    break
+  fi
+  [[ "$attempt" == "3" ]] && { msg_error "apt-get install fehlgeschlagen (3 Versuche) – Log prüfen."; exit 1; }
+  msg_warn "apt-get install Versuch ${attempt} fehlgeschlagen – wiederhole mit --fix-missing ..."
+  apt-get update -qq >/dev/null 2>&1 || true
+  sleep 5
+done
 msg_ok "Basispakete installiert."
 
 if [[ -n "$HOST_TZ" && -f "/usr/share/zoneinfo/${HOST_TZ}" ]]; then
@@ -644,6 +694,12 @@ if [[ -n "$PASSWORD_ARG" ]]; then
 fi
 
 msg_info "Installiere ${APP_NAME} im Container (kann einige Minuten dauern) ..."
+# Nameserver des Hosts als DNS-Fallback für den CT (über DNS_SERVERS überschreibbar).
+# Loopback-Einträge (systemd-resolved-Stub) funktionieren aus dem CT nicht.
+if [[ -z "${DNS_SERVERS:-}" ]]; then
+  DNS_SERVERS="$(awk '/^nameserver/ {print $2}' /etc/resolv.conf 2>/dev/null \
+    | grep -v -e '^127\.' -e '^::1$' | head -3 | tr '\n' ' ' | sed 's/ $//')"
+fi
 BOOT_ARGS=(
   --hostname "$HOSTNAME_ARG"
   --repo "$INSTALLER_REPO"
@@ -654,6 +710,7 @@ BOOT_ARGS=(
   --user "$APP_USER"
   --raw-base "$RAW_BASE"
   --timezone "$HOST_TZ"
+  --dns-servers "$DNS_SERVERS"
 )
 if [[ -n "$PASSWORD_ARG" ]]; then
   BOOT_ARGS+=(--password-file /root/timeblocks.pw)
