@@ -433,35 +433,56 @@ msg_info "Warte auf Netzwerk/DNS im Container ..."
 # Readiness wie apt selbst: Namensauflösung + HTTP-Fetch (kein HTTPS – vermeidet
 # False-Negatives durch TLS-/Zeitprobleme im frischen CT).
 net_ready() {
-  getent hosts deb.debian.org >/dev/null 2>&1 \
+  timeout 6 getent hosts deb.debian.org >/dev/null 2>&1 \
     && curl -fsS -m 5 -o /dev/null http://deb.debian.org/ 2>/dev/null
 }
 
 NET_OK="0"
-for _ in $(seq 1 30); do
+USED_NS=""
+# Kurze Gnadenfrist für langsames DHCP (von DHCP geschriebene resolv.conf nutzen)
+for _ in 1 2 3; do
   if net_ready; then NET_OK="1"; break; fi
   sleep 2
 done
 
-# DNS-Reparatur: Wenn der CT selbst nicht auflöst (DHCP ohne DNS, blockierter oder
-# leerer Stub), die Nameserver des Proxmox-Hosts übernehmen – der Host löst ja
-# nachweislich auf, sonst wäre dieses Skript nie heruntergeladen worden. Als letzte
-# Rettung zusätzlich das Gateway eintragen. Original bleibt als Backup liegen.
+# DNS-Kandidaten-Kette: Der Proxmox-Host löst nachweislich auf, aber bei
+# dual-homed Hosts können dessen Nameserver in einem anderen Subnetz liegen und
+# vom CT unerreichbar sein (gleiche Lücke beim Gateway als Resolver). Daher jeden
+# Kandidaten einzeln testen und den ersten nehmen, der wirklich auflöst:
+#   1. Nameserver des Hosts (--dns-servers / DNS_SERVERS)
+#   2. Gateway des CT
+#   3. Öffentliche Resolver als letzter Fallback
+GW="$(ip route 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "via") {print $(i + 1); exit}}')"
+CANDIDATES="${DNS_SERVERS:-}"
+[[ -n "$GW" ]] && CANDIDATES="$CANDIDATES ${GW}"
+PUBLIC_DNS="1.1.1.1 9.9.9.9 8.8.8.8"
+
 if [[ "$NET_OK" != "1" ]]; then
   cp /etc/resolv.conf /etc/resolv.conf.timeblocks-orig 2>/dev/null || true
-  msg_warn "DNS im CT nicht bereit – schreibe Nameserver des Hosts: ${DNS_SERVERS:-<keine>}"
-  : > /etc/resolv.conf
-  for ns in $DNS_SERVERS; do printf 'nameserver %s\n' "$ns" >> /etc/resolv.conf; done
-  GW="$(ip route 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "via") {print $(i + 1); exit}}')"
-  if [[ -n "$GW" ]] && ! grep -qs "^nameserver ${GW}$" /etc/resolv.conf; then
-    printf 'nameserver %s\n' "$GW" >> /etc/resolv.conf
-  fi
-  for _ in $(seq 1 15); do
-    if net_ready; then NET_OK="1"; break; fi
-    sleep 2
+  TRIED=""
+  for ns in $CANDIDATES $PUBLIC_DNS; do
+    [[ " $TRIED " == *" $ns "* ]] && continue
+    TRIED="$TRIED $ns"
+    msg_warn "DNS im CT nicht bereit – teste Nameserver ${ns} ..."
+    printf 'nameserver %s\n' "$ns" > /etc/resolv.conf
+    if net_ready && { sleep 2; net_ready; }; then
+      NET_OK="1"
+      USED_NS="$ns"
+      break
+    fi
   done
   if [[ "$NET_OK" == "1" ]]; then
-    msg_ok "DNS funktioniert nach Nameserver-Übernahme (Original: /etc/resolv.conf.timeblocks-orig)."
+    # Finale resolv.conf: funktionierenden NS zuerst, Rest als Reserve (ohne Duplikate)
+    : > /etc/resolv.conf
+    printf 'nameserver %s\n' "$USED_NS" >> /etc/resolv.conf
+    for ns in $CANDIDATES; do
+      [[ "$ns" == "$USED_NS" ]] || grep -qs "^nameserver ${ns}$" /etc/resolv.conf \
+        || printf 'nameserver %s\n' "$ns" >> /etc/resolv.conf
+    done
+    msg_ok "DNS funktioniert über Nameserver ${USED_NS} (Original: /etc/resolv.conf.timeblocks-orig)."
+    if [[ " $PUBLIC_DNS " == *" $USED_NS "* ]]; then
+      msg_warn "Nur öffentliche Resolver erreichbar – bei DHCP-Renewal kann der Router die resolv.conf wieder überschreiben."
+    fi
   fi
 fi
 
@@ -471,6 +492,14 @@ if [[ "$NET_OK" != "1" ]]; then
   sed 's/^/    /' /etc/resolv.conf >&2 || true
   msg_error "IP-Konfiguration:"
   ip -br addr 2>/dev/null | sed 's/^/    /' >&2 || true
+  for ns in $CANDIDATES $PUBLIC_DNS; do
+    if ping -c1 -W2 "$ns" >/dev/null 2>&1; then
+      msg_error "  ${ns}: pingbar, antwortet aber nicht auf DNS."
+    else
+      msg_error "  ${ns}: nicht pingbar (ICMP kann auch gefiltert sein)."
+    fi
+  done
+  msg_error "Hinweis: Liegen Host-Nameserver in einem anderen Subnetz als der CT (z. B. 192.168.178.x vs. 10.120.1.x), sind sie vom CT meist nicht erreichbar – Route/Firewall auf dem Router zwischen den Netzen prüfen."
   msg_error "Test im CT: getent hosts deb.debian.org && curl -m5 -I http://deb.debian.org"
   exit 1
 fi
