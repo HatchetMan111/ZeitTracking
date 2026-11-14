@@ -521,12 +521,38 @@ fi
 
 # 2) Werkzeug-Basis: Das Debian-Standard-Template bringt kein curl mit – ohne curl
 #    sind die HTTP-Tests blind. apt selbst braucht kein curl; DNS ist jetzt repariert.
+
+# Tolerantere Resolver-Parameter (langsamer/überlasteter Resolver → weniger
+# 'Temporary failure resolving' durch 5s-Standard-Timeout):
+grep -qs '^options' /etc/resolv.conf \
+  || printf 'options timeout:8 attempts:3 rotate\n' >> /etc/resolv.conf
+
+# apt-Sandbox: apt's http-Methode läuft als eigener Benutzer _apt. Kann dieser
+# die Resolver-Dateien nicht lesen (restriktive Rechte im Template) oder bricht
+# seine Sandbox-Umgebung im unprivilegierten LXC, meldet apt exakt 'Temporary
+# failure resolving' – obwohl getent als root funktioniert. Deshalb: Rechte
+# korrigieren, Sandbox selbst testen, im Notfall als root arbeiten.
+chmod 0644 /etc/resolv.conf /etc/hosts /etc/nsswitch.conf 2>/dev/null || true
+APT_OPTS=(-o Acquire::Retries=3)
+if command -v runuser >/dev/null 2>&1 && id _apt >/dev/null 2>&1; then
+  if ! runuser -u _apt -- getent hosts deb.debian.org >/dev/null 2>&1; then
+    msg_warn "apt-Sandbox-Benutzer _apt kann nicht auflösen – korrigiere Dateirechte ..."
+    chmod 0644 /etc/resolv.conf /etc/hosts /etc/nsswitch.conf 2>/dev/null || true
+    if runuser -u _apt -- getent hosts deb.debian.org >/dev/null 2>&1; then
+      msg_ok "Benutzer _apt löst jetzt auf (Rechte korrigiert)."
+    else
+      msg_warn "_apt kann weiterhin nicht auflösen – apt-Methoden laufen stattdessen als root (APT::Sandbox::User=root)."
+      APT_OPTS+=(-o APT::Sandbox::User=root)
+    fi
+  fi
+fi
+
 if ! command -v curl >/dev/null 2>&1; then
   msg_info "curl fehlt im Template – installiere via apt (DNS funktioniert jetzt) ..."
   APT_OK="0"
   for attempt in 1 2 3 4; do
-    if apt-get update -qq -o Acquire::Retries=3 \
-      && apt-get install -y -qq --no-install-recommends curl ca-certificates >/dev/null 2>&1 \
+    if apt-get update -qq "${APT_OPTS[@]}" \
+      && apt-get install -y -qq "${APT_OPTS[@]}" --no-install-recommends curl ca-certificates >/dev/null 2>&1 \
       && command -v curl >/dev/null 2>&1; then
       APT_OK="1"
       break
@@ -544,8 +570,8 @@ if ! command -v curl >/dev/null 2>&1; then
       msg_warn "Versuche HTTPS-Quellen (TCP 80 könnte blockiert sein) ..."
       sed -i 's|http://deb.debian.org|https://deb.debian.org|g; s|http://security.debian.org|https://security.debian.org|g' \
         /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list 2>/dev/null || true
-      if apt-get update -qq -o Acquire::Retries=3 \
-        && apt-get install -y -qq --no-install-recommends curl ca-certificates >/dev/null 2>&1 \
+      if apt-get update -qq "${APT_OPTS[@]}" \
+        && apt-get install -y -qq "${APT_OPTS[@]}" --no-install-recommends curl ca-certificates >/dev/null 2>&1 \
         && command -v curl >/dev/null 2>&1; then
         APT_OK="1"
         msg_ok "HTTPS-Quellen funktionieren – curl installiert."
@@ -651,7 +677,7 @@ msg_ok "Netzwerk und DNS im Container bereit."
 
 msg_info "Aktualisiere Paketlisten ..."
 for attempt in 1 2 3; do
-  apt-get update -qq && break
+  apt-get update -qq "${APT_OPTS[@]}" && break
   [[ "$attempt" == "3" ]] && { msg_error "apt-get update fehlgeschlagen – Netzwerk/DNS prüfen."; exit 1; }
   sleep 5
 done
@@ -659,14 +685,14 @@ done
 msg_info "Installiere Basispakete ..."
 APT_OK="0"
 for attempt in 1 2 3; do
-  if apt-get install -y -qq --no-install-recommends \
+  if apt-get install -y -qq "${APT_OPTS[@]}" --no-install-recommends \
     python3 python3-venv python3-pip git curl ca-certificates sqlite3 tzdata >/dev/null; then
     APT_OK="1"
     break
   fi
   [[ "$attempt" == "3" ]] && { msg_error "apt-get install fehlgeschlagen (3 Versuche) – Log prüfen."; exit 1; }
   msg_warn "apt-get install Versuch ${attempt} fehlgeschlagen – wiederhole mit --fix-missing ..."
-  apt-get update -qq >/dev/null 2>&1 || true
+  apt-get update -qq "${APT_OPTS[@]}" >/dev/null 2>&1 || true
   sleep 5
 done
 msg_ok "Basispakete installiert."
@@ -681,9 +707,9 @@ fi
 
 GUNICORN_BIN=""
 use_system_packages() {
-  apt-get install -y -qq --no-install-recommends python3-flask >/dev/null 2>&1 || return 1
-  apt-get install -y -qq --no-install-recommends gunicorn >/dev/null 2>&1 \
-    || apt-get install -y -qq --no-install-recommends python3-gunicorn >/dev/null 2>&1 \
+  apt-get install -y -qq "${APT_OPTS[@]}" --no-install-recommends python3-flask >/dev/null 2>&1 || return 1
+  apt-get install -y -qq "${APT_OPTS[@]}" --no-install-recommends gunicorn >/dev/null 2>&1 \
+    || apt-get install -y -qq "${APT_OPTS[@]}" --no-install-recommends python3-gunicorn >/dev/null 2>&1 \
     || return 1
   python3 -c "import flask" >/dev/null 2>&1 || return 1
   command -v gunicorn >/dev/null 2>&1 || return 1
