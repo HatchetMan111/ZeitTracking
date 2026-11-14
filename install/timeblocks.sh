@@ -428,6 +428,45 @@ catch_error() {
 trap 'catch_error $? "$LINENO" "$BASH_COMMAND"' ERR
 
 export DEBIAN_FRONTEND=noninteractive
+
+GW="$(ip route 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "via") {print $(i + 1); exit}}')"
+CANDIDATES="${DNS_SERVERS:-}"
+[[ -n "$GW" ]] && CANDIDATES="$CANDIDATES ${GW}"
+PUBLIC_DNS="1.1.1.1 9.9.9.9 8.8.8.8"
+
+# 0) Werkzeug-Basis: Das Debian-Standard-Template bringt kein curl mit – ohne curl
+#    sind alle nachfolgenden Netz-Tests blind (pingbar ≠ HTTP-testbar). apt selbst
+#    braucht kein curl und zeigt Netz-Probleme ehrlich an: daher curl zuerst.
+if ! command -v curl >/dev/null 2>&1; then
+  msg_info "curl fehlt im Template – installiere zuerst via apt (apt zeigt echte Netz-Fehler) ..."
+  APT_OK="0"
+  for attempt in 1 2 3 4; do
+    if apt-get update -qq -o Acquire::Retries=3 \
+      && apt-get install -y -qq --no-install-recommends curl ca-certificates >/dev/null 2>&1 \
+      && command -v curl >/dev/null 2>&1; then
+      APT_OK="1"
+      break
+    fi
+    [[ "$attempt" == "4" ]] && break
+    msg_warn "apt-Versuch ${attempt} fehlgeschlagen – wiederhole in 10 s ..."
+    sleep 10
+  done
+  if [[ "$APT_OK" == "1" ]]; then
+    msg_ok "curl installiert – Netz-Tests sind jetzt belastbar."
+  else
+    msg_error "apt konnte curl nicht installieren (Fehler oben) – DNS-Test ohne curl (getent ist im Template):"
+    for ns in $CANDIDATES $PUBLIC_DNS; do
+      printf 'nameserver %s\n' "$ns" > /etc/resolv.conf
+      if timeout 8 getent hosts deb.debian.org >/dev/null 2>&1; then
+        msg_error "  ${ns}: DNS-Auflösung FUNKTIONIERT – Problem liegt bei TCP 80 zu den Repos, nicht am DNS."
+      else
+        msg_error "  ${ns}: löst nicht auf."
+      fi
+    done
+    exit 1
+  fi
+fi
+
 msg_info "Warte auf Netzwerk/DNS im Container ..."
 
 # Readiness wie apt selbst: Namensauflösung + HTTP-Fetch (kein HTTPS – vermeidet
@@ -452,10 +491,6 @@ done
 #   1. Nameserver des Hosts (--dns-servers / DNS_SERVERS)
 #   2. Gateway des CT
 #   3. Öffentliche Resolver als letzter Fallback
-GW="$(ip route 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "via") {print $(i + 1); exit}}')"
-CANDIDATES="${DNS_SERVERS:-}"
-[[ -n "$GW" ]] && CANDIDATES="$CANDIDATES ${GW}"
-PUBLIC_DNS="1.1.1.1 9.9.9.9 8.8.8.8"
 
 # Notfall-Auflösung via DNS-over-HTTPS (JSON-API), falls UDP 53 komplett blockiert
 # ist, aber HTTPS ins Internet geht. Löst per IP-literal-Endpunkt (braucht kein DNS).
@@ -537,6 +572,11 @@ if [[ "$NET_OK" != "1" ]]; then
   sed 's/^/    /' /etc/resolv.conf >&2 || true
   msg_error "IP-Konfiguration:"
   ip -br addr 2>/dev/null | sed 's/^/    /' >&2 || true
+  if command -v curl >/dev/null 2>&1; then
+    msg_error "Werkzeuge: curl vorhanden."
+  else
+    msg_error "Werkzeuge: curl FEHLT im CT (Tests waren dadurch evtl. blind)."
+  fi
   for ns in $CANDIDATES $PUBLIC_DNS; do
     if ping -c1 -W2 "$ns" >/dev/null 2>&1; then
       msg_error "  ${ns}: pingbar, antwortet aber nicht auf DNS."
