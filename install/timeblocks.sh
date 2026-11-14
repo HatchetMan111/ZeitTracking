@@ -434,6 +434,23 @@ CANDIDATES="${DNS_SERVERS:-}"
 [[ -n "$GW" ]] && CANDIDATES="$CANDIDATES ${GW}"
 PUBLIC_DNS="1.1.1.1 9.9.9.9 8.8.8.8"
 
+# 0) DNS-Stabilisierung VOR allen Tests: Debian 13 aktiviert systemd-resolved
+#    standardmäßig – /etc/resolv.conf ist dann ein Symlink auf den Stub
+#    (127.0.0.53), und resolved nutzt die DHCP-Upstreams, die in diesem Netz
+#    unbrauchbar sind. Symptom: getent löst (unser Eintrag stand gerade im Stub),
+#    apt Sekunden später nicht mehr (resolved hat regeneriert). Daher: resolved
+#    aus, echte statische resolv.conf, per chattr gegen DHCP-Renewals fixiert.
+chattr -i /etc/resolv.conf 2>/dev/null || true
+if systemctl is-active --quiet systemd-resolved 2>/dev/null; then
+  msg_warn "systemd-resolved ist aktiv – deaktiviere es zugunsten einer statischen resolv.conf ..."
+  systemctl disable --now systemd-resolved >/dev/null 2>&1 || true
+fi
+if [[ -L /etc/resolv.conf ]]; then
+  GOOD_DNS="$(cat /etc/resolv.conf 2>/dev/null || true)"
+  rm -f /etc/resolv.conf
+  printf '%s\n' "$GOOD_DNS" > /etc/resolv.conf
+fi
+
 # 1) DNS zuerst: getent ist im Template (curl evtl. noch nicht) – daher die
 #    resolv.conf mit einem funktionierenden Nameserver reparieren, BEVOR apt
 #    läuft. Hintergrund: Der DHCP-Server kann eine leere/unbrauchbare resolv.conf
@@ -521,8 +538,29 @@ if ! command -v curl >/dev/null 2>&1; then
   if [[ "$APT_OK" == "1" ]]; then
     msg_ok "curl installiert – Netz-Tests sind jetzt belastbar."
   else
-    msg_error "apt konnte curl nicht installieren (Fehler oben) – DNS funktioniert (getent-Test oben), also liegt das Problem bei TCP 80/443 zu den Repos."
-    exit 1
+    # Letzter Versuch: HTTPS-Quellen (falls TCP 80 blockiert ist, 443 aber offen)
+    if grep -qs '^deb http://' /etc/apt/sources.list 2>/dev/null \
+      || grep -qs '^URIs: http://' /etc/apt/sources.list.d/*.sources 2>/dev/null; then
+      msg_warn "Versuche HTTPS-Quellen (TCP 80 könnte blockiert sein) ..."
+      sed -i 's|http://deb.debian.org|https://deb.debian.org|g; s|http://security.debian.org|https://security.debian.org|g' \
+        /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list 2>/dev/null || true
+      if apt-get update -qq -o Acquire::Retries=3 \
+        && apt-get install -y -qq --no-install-recommends curl ca-certificates >/dev/null 2>&1 \
+        && command -v curl >/dev/null 2>&1; then
+        APT_OK="1"
+        msg_ok "HTTPS-Quellen funktionieren – curl installiert."
+      fi
+    fi
+    if [[ "$APT_OK" != "1" ]]; then
+      msg_error "apt konnte curl nicht installieren (Fehler oben). Momentaufnahme:"
+      msg_error "  resolv.conf: $(grep '^nameserver' /etc/resolv.conf | tr '\n' ' ' | sed 's/ $//')"
+      if net_resolve_ok; then
+        msg_error "  getent löst JETZT auf – DNS flackt oder apt-spezifisch: 'apt-get update' ohne -qq im CT zeigt den echten Fehler."
+      else
+        msg_error "  getent löst JETZT nicht mehr auf – DNS instabil (Resolver/Firewall prüfen)."
+      fi
+      exit 1
+    fi
   fi
 fi
 
@@ -605,6 +643,9 @@ if [[ "$NET_OK" != "1" ]]; then
   msg_error "Hinweis: Liegen Host-Nameserver in einem anderen Subnetz als der CT (z. B. 192.168.178.x vs. 10.120.1.x), sind sie vom CT meist nicht erreichbar – Route/Firewall auf dem Router zwischen den Netzen prüfen."
   msg_error "Test im CT: getent hosts deb.debian.org && curl -m5 -I http://deb.debian.org"
   exit 1
+fi
+if chattr +i /etc/resolv.conf 2>/dev/null; then
+  msg_info "resolv.conf statisch fixiert (chattr +i) – Aufheben mit: chattr -i /etc/resolv.conf"
 fi
 msg_ok "Netzwerk und DNS im Container bereit."
 
