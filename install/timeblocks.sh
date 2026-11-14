@@ -457,6 +457,19 @@ CANDIDATES="${DNS_SERVERS:-}"
 [[ -n "$GW" ]] && CANDIDATES="$CANDIDATES ${GW}"
 PUBLIC_DNS="1.1.1.1 9.9.9.9 8.8.8.8"
 
+# Notfall-Auflösung via DNS-over-HTTPS (JSON-API), falls UDP 53 komplett blockiert
+# ist, aber HTTPS ins Internet geht. Löst per IP-literal-Endpunkt (braucht kein DNS).
+doh_resolve() {
+  local host="$1" j ans_ip
+  for j in \
+    "$(curl -kfsS -m 8 -H 'accept: application/dns-json' "https://1.1.1.1/dns-query?name=${host}&type=A" 2>/dev/null)" \
+    "$(curl -kfsS -m 8 -H 'accept: application/dns-json' "https://8.8.8.8/resolve?name=${host}&type=A" 2>/dev/null)"; do
+    ans_ip="$(printf '%s' "$j" | grep -oE '"data":"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"' | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+')" || true
+    [[ -n "$ans_ip" ]] && { printf '%s\n' "$ans_ip"; return 0; }
+  done
+  return 1
+}
+
 if [[ "$NET_OK" != "1" ]]; then
   cp /etc/resolv.conf /etc/resolv.conf.timeblocks-orig 2>/dev/null || true
   TRIED=""
@@ -486,7 +499,39 @@ if [[ "$NET_OK" != "1" ]]; then
   fi
 fi
 
+# DoH-Notfallmodus: Ping/Internet geht, aber kein einziger Resolver antwortet
+# (UDP 53 netzweit blockiert). Dann apt/pip/git die benötigten Hostnamen per DoH
+# auflösen und in /etc/hosts verankern – die Installation braucht danach keinen
+# klassischen DNS mehr.
 if [[ "$NET_OK" != "1" ]]; then
+  if curl -kSs -m 6 -o /dev/null https://1.1.1.1/ 2>/dev/null \
+    || curl -kSs -m 6 -o /dev/null https://9.9.9.9/ 2>/dev/null; then
+    msg_warn "Kein klassisches DNS erreichbar (UDP 53 blockiert?), aber HTTPS ins Internet funktioniert – schalte auf DNS-over-HTTPS-Notfallmodus um."
+    [[ -f /etc/resolv.conf.timeblocks-orig ]] && cp /etc/resolv.conf.timeblocks-orig /etc/resolv.conf 2>/dev/null || true
+    HOSTS_NEED="deb.debian.org security.debian.org github.com codeload.github.com raw.githubusercontent.com pypi.org files.pythonhosted.org"
+    HOSTS_OK="0"
+    for h in $HOSTS_NEED; do
+      if ans_ip="$(doh_resolve "$h")" && ! grep -qs "[[:space:]]${h}\([[:space:]]\|$\)" /etc/hosts; then
+        printf '%s\t%s\n' "$ans_ip" "$h" >> /etc/hosts
+        HOSTS_OK=$((HOSTS_OK + 1))
+      fi
+    done
+    if net_ready; then
+      NET_OK="1"
+      msg_ok "DNS-over-HTTPS-Notfallmodus aktiv: ${HOSTS_OK} Hostname(n) fest in /etc/hosts verankert."
+      msg_warn "Der Notfallmodus umgeht deinen DNS-Filter (AdGuard). Dauerhaft sauber: AdGuard so einstellen, dass er auch aus dem CT-Netz (10.120.1.x) antwortet, oder UDP/TCP 53 dorthin freigeben – dann klappt künftig auch der normale Modus."
+    else
+      msg_warn "DoH-Auflösung lief, aber apt-Hosts lösen weiterhin nicht auf."
+    fi
+  fi
+fi
+
+if [[ "$NET_OK" != "1" ]]; then
+  if curl -kSs -m 6 -o /dev/null https://1.1.1.1/ >/dev/null 2>&1; then
+    msg_error "TCP 443 ausgehend: funktioniert – aber keinerlei DNS (weder UDP 53 noch DoH-Antworten)."
+  else
+    msg_error "TCP 443 ausgehend: blockiert – es geht nur ICMP/Ping, keine Nutzdaten."
+  fi
   msg_error "Netzwerk/DNS im Container nicht nutzbar – Abbruch vor apt."
   msg_error "/etc/resolv.conf:"
   sed 's/^/    /' /etc/resolv.conf >&2 || true
