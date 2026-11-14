@@ -434,53 +434,20 @@ CANDIDATES="${DNS_SERVERS:-}"
 [[ -n "$GW" ]] && CANDIDATES="$CANDIDATES ${GW}"
 PUBLIC_DNS="1.1.1.1 9.9.9.9 8.8.8.8"
 
-# 0) Werkzeug-Basis: Das Debian-Standard-Template bringt kein curl mit – ohne curl
-#    sind alle nachfolgenden Netz-Tests blind (pingbar ≠ HTTP-testbar). apt selbst
-#    braucht kein curl und zeigt Netz-Probleme ehrlich an: daher curl zuerst.
-if ! command -v curl >/dev/null 2>&1; then
-  msg_info "curl fehlt im Template – installiere zuerst via apt (apt zeigt echte Netz-Fehler) ..."
-  APT_OK="0"
-  for attempt in 1 2 3 4; do
-    if apt-get update -qq -o Acquire::Retries=3 \
-      && apt-get install -y -qq --no-install-recommends curl ca-certificates >/dev/null 2>&1 \
-      && command -v curl >/dev/null 2>&1; then
-      APT_OK="1"
-      break
-    fi
-    [[ "$attempt" == "4" ]] && break
-    msg_warn "apt-Versuch ${attempt} fehlgeschlagen – wiederhole in 10 s ..."
-    sleep 10
-  done
-  if [[ "$APT_OK" == "1" ]]; then
-    msg_ok "curl installiert – Netz-Tests sind jetzt belastbar."
-  else
-    msg_error "apt konnte curl nicht installieren (Fehler oben) – DNS-Test ohne curl (getent ist im Template):"
-    for ns in $CANDIDATES $PUBLIC_DNS; do
-      printf 'nameserver %s\n' "$ns" > /etc/resolv.conf
-      if timeout 8 getent hosts deb.debian.org >/dev/null 2>&1; then
-        msg_error "  ${ns}: DNS-Auflösung FUNKTIONIERT – Problem liegt bei TCP 80 zu den Repos, nicht am DNS."
-      else
-        msg_error "  ${ns}: löst nicht auf."
-      fi
-    done
-    exit 1
-  fi
-fi
-
-msg_info "Warte auf Netzwerk/DNS im Container ..."
-
-# Readiness wie apt selbst: Namensauflösung + HTTP-Fetch (kein HTTPS – vermeidet
-# False-Negatives durch TLS-/Zeitprobleme im frischen CT).
-net_ready() {
-  timeout 6 getent hosts deb.debian.org >/dev/null 2>&1 \
-    && curl -fsS -m 5 -o /dev/null http://deb.debian.org/ 2>/dev/null
+# 1) DNS zuerst: getent ist im Template (curl evtl. noch nicht) – daher die
+#    resolv.conf mit einem funktionierenden Nameserver reparieren, BEVOR apt
+#    läuft. Hintergrund: Der DHCP-Server kann eine leere/unbrauchbare resolv.conf
+#    liefern, während die Kandidaten selbst einwandfrei antworten.
+net_resolve_ok() {
+  timeout 6 getent hosts deb.debian.org >/dev/null 2>&1
 }
 
+msg_info "Warte auf DNS im Container (getent-Test, curl kommt danach via apt) ..."
 NET_OK="0"
 USED_NS=""
 # Kurze Gnadenfrist für langsames DHCP (von DHCP geschriebene resolv.conf nutzen)
 for _ in 1 2 3; do
-  if net_ready; then NET_OK="1"; break; fi
+  if net_resolve_ok; then NET_OK="1"; break; fi
   sleep 2
 done
 
@@ -491,29 +458,15 @@ done
 #   1. Nameserver des Hosts (--dns-servers / DNS_SERVERS)
 #   2. Gateway des CT
 #   3. Öffentliche Resolver als letzter Fallback
-
-# Notfall-Auflösung via DNS-over-HTTPS (JSON-API), falls UDP 53 komplett blockiert
-# ist, aber HTTPS ins Internet geht. Löst per IP-literal-Endpunkt (braucht kein DNS).
-doh_resolve() {
-  local host="$1" j ans_ip
-  for j in \
-    "$(curl -kfsS -m 8 -H 'accept: application/dns-json' "https://1.1.1.1/dns-query?name=${host}&type=A" 2>/dev/null)" \
-    "$(curl -kfsS -m 8 -H 'accept: application/dns-json' "https://8.8.8.8/resolve?name=${host}&type=A" 2>/dev/null)"; do
-    ans_ip="$(printf '%s' "$j" | grep -oE '"data":"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"' | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+')" || true
-    [[ -n "$ans_ip" ]] && { printf '%s\n' "$ans_ip"; return 0; }
-  done
-  return 1
-}
-
 if [[ "$NET_OK" != "1" ]]; then
   cp /etc/resolv.conf /etc/resolv.conf.timeblocks-orig 2>/dev/null || true
   TRIED=""
   for ns in $CANDIDATES $PUBLIC_DNS; do
     [[ " $TRIED " == *" $ns "* ]] && continue
     TRIED="$TRIED $ns"
-    msg_warn "DNS im CT nicht bereit – teste Nameserver ${ns} ..."
+    msg_warn "DNS im CT nicht bereit – teste Nameserver ${ns} (getent) ..."
     printf 'nameserver %s\n' "$ns" > /etc/resolv.conf
-    if net_ready && { sleep 2; net_ready; }; then
+    if net_resolve_ok && { sleep 2; net_resolve_ok; }; then
       NET_OK="1"
       USED_NS="$ns"
       break
@@ -533,6 +486,71 @@ if [[ "$NET_OK" != "1" ]]; then
     fi
   fi
 fi
+
+if [[ "$NET_OK" != "1" ]]; then
+  msg_error "Kein funktionierender DNS erreichbar – Abbruch vor apt. getent-Test pro Kandidat:"
+  for ns in $CANDIDATES $PUBLIC_DNS; do
+    printf 'nameserver %s\n' "$ns" > /etc/resolv.conf
+    if timeout 8 getent hosts deb.debian.org >/dev/null 2>&1; then
+      msg_error "  ${ns}: DNS-Auflösung FUNKTIONIERT."
+    else
+      msg_error "  ${ns}: löst nicht auf."
+    fi
+  done
+  msg_error "IP-Konfiguration:"
+  ip -br addr 2>/dev/null | sed 's/^/    /' >&2 || true
+  exit 1
+fi
+
+# 2) Werkzeug-Basis: Das Debian-Standard-Template bringt kein curl mit – ohne curl
+#    sind die HTTP-Tests blind. apt selbst braucht kein curl; DNS ist jetzt repariert.
+if ! command -v curl >/dev/null 2>&1; then
+  msg_info "curl fehlt im Template – installiere via apt (DNS funktioniert jetzt) ..."
+  APT_OK="0"
+  for attempt in 1 2 3 4; do
+    if apt-get update -qq -o Acquire::Retries=3 \
+      && apt-get install -y -qq --no-install-recommends curl ca-certificates >/dev/null 2>&1 \
+      && command -v curl >/dev/null 2>&1; then
+      APT_OK="1"
+      break
+    fi
+    [[ "$attempt" == "4" ]] && break
+    msg_warn "apt-Versuch ${attempt} fehlgeschlagen – wiederhole in 10 s ..."
+    sleep 10
+  done
+  if [[ "$APT_OK" == "1" ]]; then
+    msg_ok "curl installiert – Netz-Tests sind jetzt belastbar."
+  else
+    msg_error "apt konnte curl nicht installieren (Fehler oben) – DNS funktioniert (getent-Test oben), also liegt das Problem bei TCP 80/443 zu den Repos."
+    exit 1
+  fi
+fi
+
+# 3) HTTP-Verifikation: Namensauflösung + HTTP-Fetch (kein HTTPS – vermeidet
+#    False-Negatives durch TLS-/Zeitprobleme im frischen CT).
+msg_info "Prüfe Netzwerk/DNS End-to-End ..."
+net_ready() {
+  timeout 6 getent hosts deb.debian.org >/dev/null 2>&1 \
+    && curl -fsS -m 5 -o /dev/null http://deb.debian.org/ 2>/dev/null
+}
+NET_OK="0"
+for _ in 1 2 3; do
+  if net_ready; then NET_OK="1"; break; fi
+  sleep 2
+done
+
+# Notfall-Auflösung via DNS-over-HTTPS (JSON-API), falls UDP 53 komplett blockiert
+# ist, aber HTTPS ins Internet geht. Löst per IP-literal-Endpunkt (braucht kein DNS).
+doh_resolve() {
+  local host="$1" j ans_ip
+  for j in \
+    "$(curl -kfsS -m 8 -H 'accept: application/dns-json' "https://1.1.1.1/dns-query?name=${host}&type=A" 2>/dev/null)" \
+    "$(curl -kfsS -m 8 -H 'accept: application/dns-json' "https://8.8.8.8/resolve?name=${host}&type=A" 2>/dev/null)"; do
+    ans_ip="$(printf '%s' "$j" | grep -oE '"data":"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"' | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+')" || true
+    [[ -n "$ans_ip" ]] && { printf '%s\n' "$ans_ip"; return 0; }
+  done
+  return 1
+}
 
 # DoH-Notfallmodus: Ping/Internet geht, aber kein einziger Resolver antwortet
 # (UDP 53 netzweit blockiert). Dann apt/pip/git die benötigten Hostnamen per DoH
@@ -567,7 +585,7 @@ if [[ "$NET_OK" != "1" ]]; then
   else
     msg_error "TCP 443 ausgehend: blockiert – es geht nur ICMP/Ping, keine Nutzdaten."
   fi
-  msg_error "Netzwerk/DNS im Container nicht nutzbar – Abbruch vor apt."
+  msg_error "Netzwerk/DNS im Container nicht nutzbar – Abbruch vor der Basisinstallation."
   msg_error "/etc/resolv.conf:"
   sed 's/^/    /' /etc/resolv.conf >&2 || true
   msg_error "IP-Konfiguration:"
